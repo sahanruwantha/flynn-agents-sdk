@@ -1,62 +1,70 @@
-# kusum
+# Flynn Agents SDK
 
-## A coding-agent harness in which nothing self-certifies
+A custom agent runtime for bounded reasoning, tool execution, and evidence-backed state.
+The runtime owns the loop. Models propose work; registered evaluators determine whether
+specific output contracts are satisfied.
 
-An agent that says "done" has not finished. In kusum, a change is accepted only when a
-typed receipt says so, and that receipt is derived from independent verifiers (build,
-types, lint, hidden and declared tests, mutation adequacy of the judging tests) bound by
-content digest to the task, the repository snapshot, and the change. The agent's own
-verdict is never an input to acceptance. Every refusal names the contract it violated,
-expected versus found, and the legal next actions. "Cannot satisfy this specification in
-scope" is a first-class, typed outcome with evidence, not a failure to keep trying.
+**Status: design and minimal scaffold.** The repository was renamed from `kusum`.
+The existing Python distribution/import is still `kusum` 0.0.1 and contains only a
+version declaration and smoke test. No agent loop, model adapter, sandbox, receipt
+system, or public SDK API is implemented. Package migration is the first milestone.
 
-kusum is a research artifact, built from scratch, with two purposes:
+## What we are building
 
-1. **The second domain for Evidence Debt.** The mechanism in
-   `../evidence-debt` was distilled from incidents in a Blender production harness. A
-   schema that only fits the incidents it was distilled from measures its own design.
-   Software-agent success claims ("tests passed", "build is green") are the planned second
-   domain, and here they come with something the first domain lacked: a ground-truth
-   oracle (hidden tests) that is independent of the warrant rule, so *truth* and *warrant*
-   can finally be measured separately on the same runs.
-2. **The treatment arm the causal study never had.** Evidence Debt's Track G (randomized
-   closed-loop trials, `USR = Pr(success emitted | warrant invalid or completeness
-   incomplete)`) is gated on "the treatment arm exists and a closed loop runs". kusum is
-   that arm. The baselines are Claude Code and OpenHands on the same tasks, the same model,
-   and the same budgets.
+A small Python SDK that lets applications control every model invocation, tool grant,
+context packet, budget, and state transition. Claude Agent SDK and OpenAI Agents SDK
+are excluded. Thin inference clients are allowed: they transport explicit requests,
+not agent loops, hidden tool execution, sessions, or automatic context management.
+The competition path must support local inference without hosted API access.
 
-## What carries over unchanged from the VFX harness
+Our first consumer is [ARC Harness](https://github.com/sahanruwantha/arc-harness),
+which will learn unfamiliar game rules through observation and experiment. The SDK
+itself will know nothing about ARC grids, game IDs, scoring, or solution strategies.
 
-- Nothing self-certifies: acceptance is a receipt from independent verifiers.
-- Content-addressed authority with computed preservation: task specification, judging
-  tests, and repository state are digested capsules; a change to one invalidates exactly
-  the receipts whose closure it touched, nothing more.
-- Bounded units with compiled context: a change set declares the files, symbols, and
-  judging tests it owns; the agent's context scales with the unit, not the repository.
-- Typed rejections that teach, applied at the earliest boundary where the inputs exist.
-- Typed abstention with contradiction evidence, opening a replan instead of another guess.
-- The improvement lifecycle: every failure becomes a mechanism with a test that fails
-  without it.
+```text
+arc-harness: observations → hypotheses → experiments → plans → game actions
+                                │
+                                ▼
+flynn-agents-sdk: context · inference · tools · budgets · events · evaluations
+```
 
-## What changes
+## Principles
 
-The evidence hierarchy becomes deterministic (build, types, lint) → executable (declared
-tests, hidden tests, property tests, mutation score, coverage of changed lines) → judged
-(rubric review only where executable evidence cannot decide, with earned blocking
-authority). The Blender workers, image metrics, and judge panels do not transfer; that is
-the point of choosing this domain.
+- Observations and interpretations have separate identities and types.
+- Model output cannot certify its own correctness.
+- A passed check establishes only its declared scope, never universal truth.
+- Uncertainty permits bounded experiments; invalid authority does not permit a commit.
+- Context is compiled for the active decision, with explicit retrieval for missing evidence.
+- Recorded evidence survives a session; stale conclusions do not silently survive revisions.
+- The runtime records failures and ambiguous external effects instead of retrying blindly.
 
-## Status
+These principles draw on our VFX Harness and Re-enactment Engine work. Their domain
+adapters and production infrastructure are not dependencies of this SDK. Neither the
+architecture nor the name implies affiliation with other projects called Flynn.
 
-`0.0.1`, planning. No mechanism exists yet. Nothing in this repository may be cited as
-evidence. See [the research plan](docs/RESEARCH_PLAN.md), the
-[decision log](docs/DECISIONS.md), the [architecture](docs/ARCHITECTURE.md), the
-[claim ledger](docs/CLAIMS.md), and the [protocol draft](docs/PROTOCOL.md).
+## Documentation
 
-## Stack
+- [Architecture](docs/ARCHITECTURE.md): boundaries and control loop.
+- [SDK design](docs/SDK_DESIGN.md): proposed interfaces and failure semantics.
+- [Roadmap](docs/ROADMAP.md): coordinated implementation and exit criteria.
+- [Research plan](docs/RESEARCH_PLAN.md) and [evaluation protocol](docs/PROTOCOL.md).
+- [Claim ledger](docs/CLAIMS.md): what is established and what remains a hypothesis.
+- [Decisions](docs/DECISIONS.md): scope change and retained history.
+- [Kusum archive](docs/history/kusum/INDEX.md): superseded coding-agent proposal.
 
-Python 3.11, Claude Agent SDK pinned per `docs/DECISIONS.md` D-002, Docker for task
-environments (SWE-bench images), `uv` for environments. Baseline harnesses are pinned per
-experiment and never share a process with kusum.
+## Working on the current scaffold
 
-Licensed under the [Apache License 2.0](LICENSE).
+Python 3.11+ and `uv` are the proposed development baseline. These commands test only
+what exists today; they do not run an agent:
+
+```bash
+uv sync --extra dev
+uv run pytest
+uv run ruff check src tests
+```
+
+There is no published install command or implemented `flynn` CLI yet. Future API
+examples in design documents are specifications, not working usage examples.
+
+Licensed under [Apache-2.0](LICENSE). Model weights and inference backends retain their
+own terms. The repositories remain private until a separate release decision.

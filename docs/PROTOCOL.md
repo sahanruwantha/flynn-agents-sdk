@@ -1,57 +1,23 @@
-# Preregistration Draft
+# Evaluation protocol template
 
-- Protocol version: `0.1.0-draft`
-- Date authored: 2026-09-04
-- Status: **UNFROZEN DRAFT — NO REGISTERED PHASE HAS RUN**
+Status: UNFROZEN; no registered trial or benchmark result exists.
 
-Freezing requires an immutable commit of this repository, this protocol's digest, the
-schema digests, the sealed instance set and hidden-test digests, the sealed injected
-specifications, the arm pins (kusum tag, Claude Code version, OpenHands release, images,
-SDK, model ids), every budget and generation option, the exact commands, and the analysis
-plan. Results produced before that event are development evidence and cannot satisfy this
-protocol retroactively.
+Before scored evaluation, commit the SDK and consumer SHAs, model/weight and tokenizer
+identities, inference backend/configuration, prompt and tool schema digests, game split,
+seed policy, action/compute/wall limits, scorer version, retry rules, and analysis script.
+A changed component starts a new experiment identity. Never relabel development runs
+as confirmatory evidence after seeing their outcomes.
 
-## Research boundary
+Record every assigned episode, including crash, timeout, malformed response, and refusal.
+Report environment completion separately from procedural validity and predictor accuracy.
+Internal diagnostics cannot replace official game scoring. Publish per-game results,
+aggregate methodology, repeated-run variation, and complete budgets for each arm.
 
-The study asks whether a harness in which acceptance is derived only from independent
-verifiers reduces unsupported success at preserved completion, on the frozen corpus,
-model, and budgets. It does not test whether agents are truthful in general, whether a
-receipt implies correctness beyond its verifiers, or whether the effect holds outside the
-frozen conditions.
+Freeze development versus held-out games before tuning. Group variants from the same
+underlying mechanics where known. Keep run workspaces isolated and carry learned state
+only across boundaries explicitly allowed by the evaluation protocol. Public-set holdout
+is not proof of training-data cleanliness or private competition performance.
 
-## To be frozen from the M4 pilot (disjoint instances)
-
-| quantity | set by | frozen value |
-|---|---|---|
-| practical minimum effect on `USR` | pilot risk-and-cost exercise | — |
-| completion non-inferiority margin | pilot | — |
-| abstention-on-satisfiable cap | pilot | — |
-| valid-work rejection cap | pilot | — |
-| turn, token, dollar, wall-time budgets per run | pilot | — |
-| number of seeds per instance × arm | power analysis on pilot variance | — |
-| multiplicity control for confirmatory endpoints | statistician review | — |
-
-## Primary analysis (fixed now)
-
-- Unit of assignment: instance × seed; blocked randomization by repository; arms run in
-  randomized order within block.
-- Primary contrast: `Pr(USR | kusum) − Pr(USR | Claude Code)` and `− Pr(USR | OpenHands)`,
-  each as a paired absolute risk difference with lineage-clustered resampling and
-  randomization inference.
-- Co-primary: true completion non-inferiority, same pairing.
-- Intention to treat: crashes, timeouts, refusals, and malformed runs are outcomes.
-- Sensitivity, prespecified: worst-case missing outcomes, execution order, cache state,
-  provider drift, pre/post training-cutoff split.
-- Everything else is exploratory and labelled so.
-
-## Stop rules
-
-Stop enrolment if any arm's severe-event rate (irreversible side effect, credential
-exposure, sandbox escape) exceeds zero; report exact bounds and extend under a registered
-rule rather than manufacture precision.
-
-## Reproducibility
-
-Every run publishes its pre- and post-run workspace digests, the hash-chained event
-journal, raw provider objects, and the sealed scoring inputs; the analysis is a script
-whose inputs are those digests.
+Numeric stopping thresholds and repetitions remain unset until a budgeted pilot. No
+paid model runs or public release are authorized by this document. ARC owns its more
+specific [evaluation protocol](https://github.com/sahanruwantha/arc-harness/blob/main/docs/EVALUATION.md).

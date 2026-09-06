@@ -3,6 +3,9 @@
 Append-only. A later decision may supersede an earlier one but must not delete it. No
 entry reports an experimental result.
 
+Current direction: **D-007** supersedes the original name, scope, and Agent SDK choice.
+D-001 through D-006 are retained as historical decisions; see D-007 for their current scope.
+
 ## D-001 — Name and scope
 
 - Date: 2026-09-04
@@ -74,3 +77,22 @@ entry reports an experimental result.
 - Decision: Apache-2.0, matching Evidence Debt's choice for its explicit patent grant.
 - Consequence: third-party material redistributed in derived form must be attributed in
   a `NOTICE` file before release; the repository is private until then.
+
+## D-007 — Custom SDK and separate ARC consumer
+
+- Date: 2026-09-06
+- Status: accepted direction from the operator; mechanisms remain planned.
+- Decision: rename the repository to **flynn-agents-sdk** and build our own agent
+  runtime. **arc-harness** is a separate consumer for ARC-AGI-3. Do not depend on Claude
+  Agent SDK or OpenAI Agents SDK. Thin inference transport clients remain permissible;
+  the loop, tool execution, context, memory, budgets, and publication stay ours.
+- Supersession: replaces D-001's name and coding-only scope and D-002's Claude Agent SDK
+  choice. D-003 through D-005 remain historical decisions for the unrun coding study,
+  not ARC acceptance criteria or the active milestone order. D-006 remains the SDK license.
+- Rationale: orchestration and learning policy are the experiment. A custom runtime
+  controls them explicitly, but does not remove a model's learned behavior or control
+  hosted model weights. ARC evaluation needs an eligible offline inference path.
+- Consequence: old plans are preserved under docs/history/kusum; current docs describe
+  the SDK/consumer split. The kusum Python stub is migrated in phase 1, not silently
+  presented as an implemented Flynn API. No runtime implementation or public release
+  is implied. Naming is operator-selected, not trademark clearance or affiliation.

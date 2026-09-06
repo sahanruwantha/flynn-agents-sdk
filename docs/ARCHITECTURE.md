@@ -1,95 +1,79 @@
-# Architecture
+# Runtime architecture
 
-**Status:** target architecture for M1 and M2. Nothing below exists yet.
+Status: proposed implementation design, 2026-09-06. Accepted product constraints are
+recorded in D-007. No component below is implemented by this documentation change.
 
-## Invariants
+## Boundary
 
-1. **No verdict flows from the agent to a receipt.** The agent's claims are journaled as
-   events and excluded from acceptance inputs by type: the receipt builder accepts only
-   `VerifierResult` values, which only registered verifiers can construct.
-2. **One implementation per metric.** A verifier registry maps a metric id to exactly
-   one implementation; producers and consumers call the same code; unknown ids are
-   rejected.
-3. **Content addressing everywhere.** Task, judging tests, repository snapshot, unit
-   contract, change, verifier configuration, and policy are digested capsules. A receipt
-   binds all of them. Changing any capsule invalidates exactly the receipts whose closure
-   contains it (computed, never inferred).
-4. **Earliest boundary.** Every check runs at the first point where its inputs exist:
-   the stage call validates the whole candidate, not finalize.
-5. **Fail closed.** Missing, stale, ambiguous, or schema-incompatible authority is a
-   typed refusal, never a warning.
-6. **Rejections teach.** Every refusal is a `TypedRejection`: contract id, expected,
-   found, legal next actions.
-7. **Abstention is legal.** `cannot_satisfy_in_scope(contradiction_evidence)` ends the
-   unit with a typed finding that opens a replan; the harness never forces another guess.
+The SDK schedules explicit inference and tool operations over versioned task state.
+Applications own domain semantics, objectives, admissible evidence, and evaluators.
+Dependencies point from applications to the SDK, never back into application code.
 
-## Components (M1, no model calls)
+| SDK owns | Application owns |
+|---|---|
+| Inference request/response contract | Choice of model and task-specific prompts |
+| Tool schema validation and scoped dispatch | Domain tools and legal action meanings |
+| Durable events and output identity | Observations, hypotheses, and goal semantics |
+| Evaluation transport and commit preconditions | What a particular evaluator can establish |
+| Context limits, retrieval transport, budgets | Relevance policy and experiment selection |
+| Cancellation and external-effect accounting | Whether an environment supports reconciliation |
 
-```text
-src/kusum/
-  domain/
-    capsules.py        Task, JudgingTests, RepoSnapshot, UnitContract, Change: frozen,
-                       digested, no I/O
-    receipts.py        Receipt = verifier results × capsule digests; PAID / OPEN /
-                       UNKNOWN / CONFLICT decision, derived only from VerifierResult
-    rejections.py      TypedRejection, Abstention envelopes; closed vocabularies
-    invalidation.py    closure computation: which receipts a capsule change touches
-  verifiers/
-    registry.py        metric id → one implementation; VerifierResult constructor is
-                       private to this package
-    build.py types.py lint.py tests.py mutation.py coverage.py
-  ledger/
-    journal.py         append-only, hash-chained event journal; one writer per run
-    store.py           immutable receipts and findings, content-addressed
-```
+## Small kernel, explicit policy
 
-Conformance is exhaustive over the closed decision space (every verifier-result
-combination × every capsule-freshness state), the way Evidence Debt enumerates its
-17,496 one-assessment states. Architecture tests assert invariants 1 and 2 by AST.
+One orchestrator serializes authoritative state updates. It compiles context, reserves
+budget, calls an inference adapter, validates proposals, dispatches permitted tools,
+and records results. Independent read-only evaluations may eventually run concurrently
+against the same frozen inputs. Parallel model roles are not required for the first slice.
 
-## Components (M2, model calls)
+A policy chooses the next operation; the kernel enforces its legality. Swapping policy
+must not swap evidence readers, accounting, or evaluator implementations implicitly.
+Model adapters cannot run tools or declare a task successful.
 
 ```text
-src/kusum/
-  agent/
-    session.py         Claude Agent SDK session with compiled unit context only
-    tools.py           bounded tools: read within unit, patch within unit, run declared
-                       verifiers, stage, finalize, abstain; every tool answer is typed
-    policy.py          hooks: deny writes outside the unit, deny unregistered commands,
-                       journal every call
-  transaction/
-    stage.py           validates the full candidate at the stage call; refuses any new
-                       finding it introduces; records what finalize will still refuse
-    finalize.py        runs the complete verifier set, builds the receipt, seals the
-                       change; a max-turns or budget exhaustion publishes nothing
-  sandbox/
-    broker.py          narrow typed operations over an isolated workspace
-    container.py       non-root, read-only root, no ambient network, fixed limits
+Task + policy + selected state
+  → compile context → reserve budget → inference → validate proposal
+  → authorized tool execution → capture result → application evaluation
+  → commit matching output / return typed finding / stop
 ```
 
-## Experiment layer (M3+)
+## Authority and uncertainty
 
-```text
-experiments/
-  common/              TrialSpec, RawAgentEvent, seals, label firewall (from Evidence
-                       Debt's live-study contract; imported as a content-addressed build)
-  arms/
-    kusum.py           treatment
-    kusum_tools_only.py control C1
-    claude_code.py     baseline B1 (pinned CLI, subprocess, common event stream)
-    openhands.py       baseline B2 (pinned release, common event stream)
-  tasks/
-    swebench.py        sealed instance sets, images, hidden tests kept outside arms
-    unsatisfiable.py   injected contradictions, sealed before assignment
-    substitutions.py   truth-preserving evidence substitution pairs
-  scoring/
-    truth.py           hidden tests only
-    warrant.py         frozen rule only
-    outcomes.py        USR, FPA, completion, guardrails, diagnostics
-```
+Store raw tool/environment observations separately from inferred interpretations.
+Applications may maintain competing hypotheses. A hypothesis consistent with the observed
+history is useful for planning but has no authority over unseen transitions. Unknowns
+can authorize budgeted probes; they cannot justify calling an unevaluated output passed.
 
-## What is deliberately absent
+Use scoped evaluation records: input identities, evaluator/version/configuration,
+observations, decision, and limitations. Hashes bind bytes; they do not prove semantic
+truth or prevent forgery by a writer who can replace both content and hashes. Trusted
+publication requires an actual process/filesystem boundary, not a private constructor.
 
-No memory across runs, no repository-wide context, no self-repair without a receipt, no
-retry from prose, no "helpful" tolerance. Each of these is a place the first domain found
-unsupported success hiding.
+## Durability and replay
+
+An append-only event stream records attempted operations and their outcomes. Selected
+state points to immutable records. A commit requires the expected base revision and
+matching evaluation inputs. Reject stale bases; never silently rebase accepted work.
+Start with complete relevant-input binding and broad invalidation. Narrow dependency
+invalidation only once all actual reads are captured and tested.
+
+Replay means reconstructing decisions from recorded inputs and outputs. It does not
+promise identical fresh model sampling or arbitrary rollback of an external environment.
+An interrupted environment action may have happened without an observed response.
+Mark that effect unknown; reconcile only if the adapter can prove the outcome. Do not
+repeat a move automatically because a request timed out.
+
+## Isolation
+
+Generated programs run behind a broker in an isolated worker with explicit resource and
+filesystem grants. The model never receives evaluator-private files, credentials, or
+unrestricted host execution. Network is disabled in competition mode. A claimed
+confinement backend needs negative tests before it is considered supported.
+
+## Proposed package layout
+
+Use `src/flynn_agents/` after explicit scaffold migration. Start with cohesive modules
+for contracts, runtime, inference, tools, context, events, evaluation, and isolation;
+introduce subpackages only when responsibilities justify them. Pure contracts cannot
+import filesystem adapters, model providers, or ARC code. There is no need for a graph
+database, distributed scheduler, plugin marketplace, or general multi-agent framework
+before the first measured consumer works.
