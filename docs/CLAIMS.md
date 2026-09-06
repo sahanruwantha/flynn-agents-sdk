@@ -12,5 +12,4 @@ Updated 2026-09-06. This ledger distinguishes repository facts from proposed ben
 | F-H005 | Hypothesis | Runtime is reusable beyond ARC | Independent non-ARC consumer through the same public API |
 
 No ARC score, performance improvement, world-first architecture, training benefit, or
-competition eligibility is established. Historical KS-* claims are retained in
-[the archived ledger](history/kusum/CLAIMS.md), not promoted or silently relabelled.
+competition eligibility is established.

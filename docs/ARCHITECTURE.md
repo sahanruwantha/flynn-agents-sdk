@@ -1,7 +1,7 @@
 # Runtime architecture
 
 Status: proposed implementation design, 2026-09-06. Accepted product constraints are
-recorded in D-007. No component below is implemented by this documentation change.
+recorded in D-001 and D-002. No component below is implemented by this documentation change.
 
 ## Boundary
 
@@ -71,9 +71,11 @@ confinement backend needs negative tests before it is considered supported.
 
 ## Proposed package layout
 
-Use `src/flynn_agents/` after explicit scaffold migration. Start with cohesive modules
+The package root is `src/flynn_agents/`. Start with cohesive modules
 for contracts, runtime, inference, tools, context, events, evaluation, and isolation;
 introduce subpackages only when responsibilities justify them. Pure contracts cannot
 import filesystem adapters, model providers, or ARC code. There is no need for a graph
 database, distributed scheduler, plugin marketplace, or general multi-agent framework
 before the first measured consumer works.
+
+See [Project structure](PROJECT_STRUCTURE.md) for the proposed tree and import boundaries.

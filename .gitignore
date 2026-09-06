@@ -5,3 +5,8 @@ __pycache__/
 .pytest_cache/
 artifacts/runs/
 .env
+
+# Python distributions and local build output
+*.egg-info/
+build/
+dist/

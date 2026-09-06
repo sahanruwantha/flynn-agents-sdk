@@ -1,7 +1,6 @@
 # Research plan
 
-Status: prospective. The previous coding-agent study is preserved in
-[the archive](history/kusum/RESEARCH_PLAN.md); it is not the current implementation queue.
+Status: prospective; no performance study has run.
 
 Question: can explicit observations, testable world models, selective context, and
 counterexample-driven repair improve adaptation efficiency at a fixed model and budget?
@@ -19,6 +18,5 @@ memory, targeted repair, and context selection individually. Distinguish a benef
 extra tools from a benefit from how the loop uses them. Publish negative results and
 latency/compute costs. Do not claim novelty without a separate prior-work comparison.
 
-The architecture inherits principles from VFX Harness and Re-enactment Engine. Successful
-production control does not establish general game reasoning. Local-model compatibility
-and benchmark generalization both require fresh tests, not extrapolation from those repos.
+Local-model compatibility and benchmark generalization require fresh tests. The SDK's
+mechanical correctness and the consumer's task performance are separate research claims.

@@ -1,21 +1,24 @@
 [project]
-name = "kusum"
+name = "flynn-agents-sdk"
 version = "0.0.1"
-description = "A coding-agent harness in which nothing self-certifies: receipt-backed acceptance, bounded units, typed rejections and abstention."
+description = "A custom agent runtime for bounded reasoning, tool execution, and evidence-backed state."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["flynn_agents*"]
+namespaces = false
 
 [tool.ruff]
 line-length = 100
@@ -23,3 +26,10 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[project.urls]
+Repository = "https://github.com/sahanruwantha/flynn-agents-sdk"

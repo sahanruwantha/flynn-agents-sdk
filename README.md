@@ -4,10 +4,10 @@ A custom agent runtime for bounded reasoning, tool execution, and evidence-backe
 The runtime owns the loop. Models propose work; registered evaluators determine whether
 specific output contracts are satisfied.
 
-**Status: design and minimal scaffold.** The repository was renamed from `kusum`.
-The existing Python distribution/import is still `kusum` 0.0.1 and contains only a
-version declaration and smoke test. No agent loop, model adapter, sandbox, receipt
-system, or public SDK API is implemented. Package migration is the first milestone.
+**Status: design and minimal Python scaffold.** The distribution is `flynn-agents-sdk`
+and the import package is `flynn_agents`, version 0.0.1. Only package metadata and a
+smoke test exist. The runtime, inference adapters, tools, persistence, and isolation
+components are planned; there is no functional agent API yet.
 
 ## What we are building
 
@@ -38,9 +38,8 @@ flynn-agents-sdk: context · inference · tools · budgets · events · evaluati
 - Recorded evidence survives a session; stale conclusions do not silently survive revisions.
 - The runtime records failures and ambiguous external effects instead of retrying blindly.
 
-These principles draw on our VFX Harness and Re-enactment Engine work. Their domain
-adapters and production infrastructure are not dependencies of this SDK. Neither the
-architecture nor the name implies affiliation with other projects called Flynn.
+Flynn is an independent SDK. Its design keeps domain behavior in consumer applications
+and makes execution policy explicit and inspectable.
 
 ## Documentation
 
@@ -49,18 +48,21 @@ architecture nor the name implies affiliation with other projects called Flynn.
 - [Roadmap](docs/ROADMAP.md): coordinated implementation and exit criteria.
 - [Research plan](docs/RESEARCH_PLAN.md) and [evaluation protocol](docs/PROTOCOL.md).
 - [Claim ledger](docs/CLAIMS.md): what is established and what remains a hypothesis.
-- [Decisions](docs/DECISIONS.md): scope change and retained history.
-- [Kusum archive](docs/history/kusum/INDEX.md): superseded coding-agent proposal.
+- [Decisions](docs/DECISIONS.md): scope change and implementation constraints.
+- [Project structure](docs/PROJECT_STRUCTURE.md): current tree, proposed modules, and dependency rules.
+- [Contributing](CONTRIBUTING.md): Python conventions and verification workflow.
 
 ## Working on the current scaffold
 
-Python 3.11+ and `uv` are the proposed development baseline. These commands test only
+Python 3.11+ and `uv` are the development baseline. These commands test only
 what exists today; they do not run an agent:
 
 ```bash
 uv sync --extra dev
 uv run pytest
 uv run ruff check src tests
+uv run ruff format --check src tests
+uv build
 ```
 
 There is no published install command or implemented `flynn` CLI yet. Future API
