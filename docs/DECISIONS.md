@@ -19,7 +19,7 @@ tool execution, session memory, or retries. Local inference must be supportable.
 ## D-003 — Package and dependency boundaries
 
 Accepted scaffold and proposed runtime layout. Use a src layout, distribution name
-`flynn-agents-sdk`, and import name `flynn_agents`. Keep pure records and interfaces
+`flynn-agents-sdk`, and import name `flynn_agents_sdk`. Keep pure records and interfaces
 separate from orchestration and I/O implementations. Consumers construct adapters and
 inject dependencies. Provider clients and worker backends belong at the outer boundary.
 Detailed ownership is documented in [Project structure](PROJECT_STRUCTURE.md).

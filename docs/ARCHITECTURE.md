@@ -71,7 +71,7 @@ confinement backend needs negative tests before it is considered supported.
 
 ## Proposed package layout
 
-The package root is `src/flynn_agents/`. Start with cohesive modules
+The package root is `src/flynn_agents_sdk/`. Start with cohesive modules
 for contracts, runtime, inference, tools, context, events, evaluation, and isolation;
 introduce subpackages only when responsibilities justify them. Pure contracts cannot
 import filesystem adapters, model providers, or ARC code. There is no need for a graph

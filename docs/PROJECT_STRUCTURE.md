@@ -14,7 +14,7 @@ flynn-agents-sdk/
 ├── LICENSE
 ├── MANIFEST.in                # Include docs and tests in the source distribution
 ├── src/
-│   └── flynn_agents/
+│   └── flynn_agents_sdk/
 │       └── __init__.py         # Minimal public facade and installed version
 ├── tests/
 │   └── unit/
@@ -29,7 +29,7 @@ Do not commit virtual environments, generated build metadata, or benchmark outpu
 ## Target tree as functionality lands
 
 ```text
-src/flynn_agents/
+src/flynn_agents_sdk/
 ├── __init__.py                # Explicit stable exports; no setup or I/O at import
 ├── contracts/                 # Pure data types and abstract dependency interfaces
 │   ├── tasks.py               # Task identity and execution limits

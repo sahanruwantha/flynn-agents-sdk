@@ -5,7 +5,7 @@ The runtime owns the loop. Models propose work; registered evaluators determine 
 specific output contracts are satisfied.
 
 **Status: design and minimal Python scaffold.** The distribution is `flynn-agents-sdk`
-and the import package is `flynn_agents`, version 0.0.1. Only package metadata and a
+and the import package is `flynn_agents_sdk`, version 0.0.1. Only package metadata and a
 smoke test exist. The runtime, inference adapters, tools, persistence, and isolation
 components are planned; there is no functional agent API yet.
 
