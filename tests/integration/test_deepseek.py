@@ -249,3 +249,29 @@ def test_rejected_arguments_capture_is_exact_and_opt_in(capture):
     assert traces[0].rejected_arguments == (raw if capture else None)
     assert traces[0].call is None
     assert "test-secret" not in repr(traces)
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_multiple_rejected_calls_preserve_each_model_argument(capture):
+    body = response(arguments='{"first":1}')
+    body["choices"][0]["message"]["tool_calls"].append(
+        {"type": "function", "function": {"name": "move", "arguments": "malformed"}}
+    )
+    traces = []
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="test-secret",
+            capture_rejected_arguments=capture,
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
+            on_trace=traces.append,
+        ) as adapter:
+            await adapter.generate(request())
+
+    with pytest.raises(ProviderResponseRejected):
+        asyncio.run(scenario())
+    assert traces[0].rejection_reason == "expected_one_tool_call"
+    assert [call.arguments for call in traces[0].rejected_calls] == (
+        ['{"first":1}', "malformed"] if capture else []
+    )
+    assert traces[0].call is None

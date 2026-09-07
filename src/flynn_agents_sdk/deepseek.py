@@ -52,6 +52,7 @@ class InferenceTrace:
     choice_count: int | None = None
     tool_call_count: int | None = None
     rejected_arguments: str | None = None
+    rejected_calls: tuple[ToolCall, ...] = ()
 
 
 class DeepSeekAdapter:
@@ -200,6 +201,7 @@ class DeepSeekAdapter:
         choice_count: int | None = None
         tool_call_count: int | None = None
         rejected_arguments: str | None = None
+        rejected_calls: tuple[ToolCall, ...] = ()
         outcome = "provider_error"
         try:
             async with asyncio.timeout(self.timeout_seconds):
@@ -267,8 +269,18 @@ class DeepSeekAdapter:
                         if not isinstance(decoded, dict):
                             rejection = "arguments_not_object"
             if rejection is not None:
-                if self._capture_rejected_arguments and isinstance(arguments, str):
-                    rejected_arguments = arguments
+                if self._capture_rejected_arguments:
+                    if isinstance(arguments, str):
+                        rejected_arguments = arguments
+                    if isinstance(calls, list):
+                        rejected_calls = tuple(
+                            ToolCall(fn["name"], fn["arguments"])
+                            for raw_call in calls
+                            if isinstance(raw_call, dict)
+                            and isinstance(fn := raw_call.get("function"), dict)
+                            and isinstance(fn.get("name"), str)
+                            and isinstance(fn.get("arguments"), str)
+                        )
                 outcome = "invalid_response"
                 raise ProviderResponseRejected(
                     rejection, choice_count=choice_count, tool_call_count=tool_call_count
@@ -310,5 +322,6 @@ class DeepSeekAdapter:
                         choice_count,
                         tool_call_count,
                         rejected_arguments,
+                        rejected_calls,
                     )
                 )
