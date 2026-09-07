@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add explicit bounded sessions driven by application step/stop policy, with durable
+  typed termination, cancellation propagation and no automatic retry or recovery.
+
 - Add native structured observation tools with immutable text/image results, JSON data,
   explicit refusal status, strict serialization, and existing durable dispatch semantics.
 

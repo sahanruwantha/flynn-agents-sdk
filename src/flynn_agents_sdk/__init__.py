@@ -36,6 +36,13 @@ from flynn_agents_sdk.contracts import (
 from flynn_agents_sdk.inference import ScriptedAdapter
 from flynn_agents_sdk.results import ImageContent, TextContent, ToolResult
 from flynn_agents_sdk.runtime import Runtime
+from flynn_agents_sdk.session import (
+    Session,
+    SessionStep,
+    SessionStop,
+    SessionTermination,
+    SessionView,
+)
 from flynn_agents_sdk.sqlite_run import SQLiteRun
 from flynn_agents_sdk.tools import Tool, ToolBroker
 
@@ -66,6 +73,11 @@ __all__ = [
     "RunLimits",
     "RunStore",
     "Runtime",
+    "Session",
+    "SessionStep",
+    "SessionStop",
+    "SessionTermination",
+    "SessionView",
     "SQLiteRun",
     "ScriptedAdapter",
     "State",
