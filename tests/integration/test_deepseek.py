@@ -225,3 +225,27 @@ def test_non_json_response_is_diagnosed_without_body():
         asyncio.run(scenario())
     assert traces[0].rejection_reason == "invalid_json"
     assert "secret" not in str(exc.value) + repr(traces)
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_rejected_arguments_capture_is_exact_and_opt_in(capture):
+    raw = '{"note":"unescaped\nnewline"}'
+    traces = []
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="test-secret",
+            capture_rejected_arguments=capture,
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json=response(arguments=raw))
+            ),
+            on_trace=traces.append,
+        ) as adapter:
+            await adapter.generate(request())
+
+    with pytest.raises(ProviderResponseRejected):
+        asyncio.run(scenario())
+    assert traces[0].rejection_reason == "arguments_invalid_json"
+    assert traces[0].rejected_arguments == (raw if capture else None)
+    assert traces[0].call is None
+    assert "test-secret" not in repr(traces)

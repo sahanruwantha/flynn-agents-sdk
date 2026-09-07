@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add opt-in exact rejected tool-argument capture to DeepSeek inference traces;
+  malformed arguments remain rejected and are never repaired or dispatched.
+
 ## [0.2.0] - 2026-09-07
 
 Prepared on the SQLite development branch; not tagged or published.

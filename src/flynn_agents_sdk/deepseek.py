@@ -51,6 +51,7 @@ class InferenceTrace:
     rejection_reason: str | None = None
     choice_count: int | None = None
     tool_call_count: int | None = None
+    rejected_arguments: str | None = None
 
 
 class DeepSeekAdapter:
@@ -60,6 +61,9 @@ class DeepSeekAdapter:
     this provider neither reads .env nor executes tools. The endpoint is fixed to
     DeepSeek so a configuration typo cannot redirect the bearer token elsewhere.
     An optional HTTP transport supports offline conformance tests.
+    Opt-in capture_rejected_arguments retains the exact rejected model string in
+    traces, never headers or HTTP error bodies. Treat this as untrusted, potentially
+    sensitive output; applications choose retention and access policies.
     """
 
     def __init__(
@@ -70,6 +74,7 @@ class DeepSeekAdapter:
         max_tokens: int = 512,
         timeout_seconds: float = 45,
         on_trace: Callable[[InferenceTrace], None] | None = None,
+        capture_rejected_arguments: bool = False,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if not api_key.strip() or "\n" in api_key or "\r" in api_key:
@@ -84,6 +89,7 @@ class DeepSeekAdapter:
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self._on_trace = on_trace
+        self._capture_rejected_arguments = capture_rejected_arguments
         self._client = httpx.AsyncClient(
             base_url="https://api.deepseek.com",
             headers={"Authorization": f"Bearer {api_key.strip()}"},
@@ -193,6 +199,7 @@ class DeepSeekAdapter:
         rejection: str | None = None
         choice_count: int | None = None
         tool_call_count: int | None = None
+        rejected_arguments: str | None = None
         outcome = "provider_error"
         try:
             async with asyncio.timeout(self.timeout_seconds):
@@ -260,6 +267,8 @@ class DeepSeekAdapter:
                         if not isinstance(decoded, dict):
                             rejection = "arguments_not_object"
             if rejection is not None:
+                if self._capture_rejected_arguments and isinstance(arguments, str):
+                    rejected_arguments = arguments
                 outcome = "invalid_response"
                 raise ProviderResponseRejected(
                     rejection, choice_count=choice_count, tool_call_count=tool_call_count
@@ -300,5 +309,6 @@ class DeepSeekAdapter:
                         rejection,
                         choice_count,
                         tool_call_count,
+                        rejected_arguments,
                     )
                 )
