@@ -45,16 +45,18 @@ connect a model. Applications supply the loop around `await runtime.step(objecti
 
 - **Enforced tool grants:** per-step overrides can narrow permissions; the broker
   enforces the same permitted tools shown to inference.
-- **Bounded execution:** inference, tool, external-action, and cooperative time limits.
+- **Bounded execution:** inference, tool, external-action, cooperative time limits, and
+  optional output-token reservations. Unknown output usage blocks further model calls;
+  scripted work needs no output tokens. Input usage is accounted for, not capped.
 - **Evaluated state:** explicit optional state updates, atomically persisted with evaluations.
 - **SQLite evidence:** durable requests, reservations, intents, results, evaluations and state; unresolved
   dispatches block further execution instead of triggering automatic retries.
 - **Context selection:** whole items chosen within a character budget, with explicit
   evidence IDs and omissions; required items must fit.
-- **Provider-neutral accounting:** `InferenceResult` carries a proposal and usage; schema 3
+- **Provider-neutral accounting:** `InferenceResult` carries a proposal and usage; schema 4
   records known, unknown and not-applicable usage, including rejected responses.
-  Missing reports remain unreported. `SQLiteRun.inspect` reads schema 2 for audit only;
-  execution requires a new schema-3 run.
+  Missing reports remain unreported. `SQLiteRun.inspect` reads schemas 2 and 3 for audit only;
+  execution requires a new schema-4 run.
 - **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
   traces, and typed response errors. No hidden agent loop or automatic retries.
 

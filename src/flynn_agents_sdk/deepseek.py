@@ -12,11 +12,13 @@ from typing import Any
 import httpx
 
 from flynn_agents_sdk.contracts import (
+    BudgetExhausted,
     InferenceCancelled,
     InferenceFailure,
     InferenceRequest,
     InferenceResult,
     InferenceUsage,
+    OutputReservation,
     ToolCall,
     UsageStatus,
 )
@@ -130,6 +132,19 @@ class DeepSeekAdapter:
             # while failing explicitly, retaining the sink exception as the cause.
             raise InferenceFailure("Inference diagnostic callback failed", usage=usage) from error
 
+    def plan_output(self, request: InferenceRequest, available: int) -> OutputReservation:
+        if available <= 0:
+            raise BudgetExhausted("Output-token budget exhausted; no model request authorized")
+        return OutputReservation("model", min(available, self._output_limit(request)))
+
+    def _output_limit(self, request: InferenceRequest) -> int:
+        limit = request.max_output_tokens
+        if limit is None:
+            return self.max_tokens
+        if type(limit) is not int or limit <= 0:
+            raise ProviderError("A model request requires a positive output-token ceiling")
+        return min(self.max_tokens, limit)
+
     def _payload(self, request: InferenceRequest) -> dict[str, Any]:
         if request.images and self.model != VISION_MODEL:
             raise ProviderError("Image input requires the DeepSeek vision model")
@@ -204,7 +219,7 @@ class DeepSeekAdapter:
             "tools": functions,
             "tool_choice": "required",
             "stream": False,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self._output_limit(request),
             "thinking": {"type": "disabled"},
         }
 

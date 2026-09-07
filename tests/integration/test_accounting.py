@@ -167,7 +167,7 @@ def test_previous_schema_golden_reads_without_mutation_but_cannot_execute(tmp_pa
     assert records["operations"][0]["output"] == "observation"
     assert summarize_usage(records)["unreported_invocations"] == 2
     assert summarize_usage(records)["usage_complete"] is False
-    with pytest.raises(ContractError, match="schema-3"):
+    with pytest.raises(ContractError, match="schema-4"):
         SQLiteRun.open(path)
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 

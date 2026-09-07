@@ -8,7 +8,7 @@ import asyncio
 import math
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class ContractError(ValueError):
@@ -153,6 +153,34 @@ class ImageInput:
 
 
 @dataclass(frozen=True)
+class OutputReservation:
+    """Adapter's no-I/O plan for one request's enforceable output ceiling."""
+
+    kind: str
+    tokens: int
+
+    def __post_init__(self) -> None:
+        if type(self.tokens) is not int or not 0 <= self.tokens < 2**63:
+            raise ContractError("Output reservation must be a nonnegative SQLite integer")
+        if self.kind not in ("model", "scripted") or (
+            (self.kind == "scripted") != (self.tokens == 0)
+        ):
+            raise ContractError(
+                "Scripted output reserves zero; model output reserves positive tokens"
+            )
+
+
+@dataclass(frozen=True)
+class OutputBudget:
+    limit: int | None
+    available: int | None
+    spent: int = 0
+    held: int = 0
+    unresolved: int = 0
+    breached: int = 0
+
+
+@dataclass(frozen=True)
 class InferenceRequest:
     objective: str
     base: State
@@ -160,6 +188,7 @@ class InferenceRequest:
     observation: str | None = None
     tools: tuple[ToolSpec, ...] = ()
     images: tuple[ImageInput, ...] = ()
+    max_output_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +230,13 @@ class InferenceAdapter(Protocol):
         ...
 
 
+@runtime_checkable
+class OutputBoundedInference(Protocol):
+    def plan_output(self, request: InferenceRequest, available: int) -> OutputReservation:
+        """No I/O: propose a bound; generate must honor request.max_output_tokens."""
+        ...
+
+
 class Evaluator(Protocol):
     async def evaluate(self, candidate: Candidate) -> Evaluation:
         """Evaluate frozen input using application-owned checks."""
@@ -230,11 +266,16 @@ class RunLimits:
     tool_calls: int
     external_actions: int
     wall_time_seconds: float | None = None
+    output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         for value in (self.inference_calls, self.tool_calls, self.external_actions):
             if type(value) is not int or not 0 <= value < 2**63:
                 raise ValueError("Operation limits must be nonnegative SQLite integers")
+        if self.output_tokens is not None and (
+            type(self.output_tokens) is not int or not 0 <= self.output_tokens < 2**63
+        ):
+            raise ValueError("Output-token limit must be a nonnegative SQLite integer or None")
         if self.wall_time_seconds is not None and (
             not math.isfinite(self.wall_time_seconds) or self.wall_time_seconds <= 0
         ):
@@ -258,7 +299,13 @@ class RunStore(Protocol):
     @property
     def seconds_remaining(self) -> float | None: ...
     def check_ready(self) -> None: ...
-    def start(self, operation_id: str, request: InferenceRequest) -> None: ...
+    def output_budget(self) -> OutputBudget: ...
+    def start(
+        self,
+        operation_id: str,
+        request: InferenceRequest,
+        output: OutputReservation | None = None,
+    ) -> None: ...
     def record_usage(self, operation_id: str, usage: InferenceUsage) -> None: ...
     def proposed(self, operation_id: str, call: ToolCall) -> None: ...
     def dispatch(self, operation_id: str, *, observation: bool, external_action: bool) -> None: ...

@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add optional durable output-token reservations in schema 4. Unknown output usage
+  blocks further model requests; scripted operations reserve zero. DeepSeek receives
+  the reserved ceiling. Schema 3 remains audit-readable, not executable.
+
 - Break the experimental inference API: return `InferenceResult` with neutral usage
   and preserve accounting on typed failure/cancellation.
 - Add immutable per-operation usage records in schema 3, including rejected responses.

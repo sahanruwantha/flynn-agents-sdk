@@ -14,6 +14,8 @@ from flynn_agents_sdk.contracts import (
     InferenceFailure,
     InferenceRequest,
     InferenceResult,
+    OutputBoundedInference,
+    OutputReservation,
     RunStore,
     StepResult,
     UnresolvedEffect,
@@ -80,8 +82,23 @@ class Runtime:
         request = replace(
             request, tools=tuple(tool for tool in request.tools if tool.name in effective)
         )
+        reservation: OutputReservation | None = None
+        available = self._run.output_budget().available
+        if available is not None:
+            if not isinstance(self._inference, OutputBoundedInference):
+                raise ContractError("Output-limited runs require an adapter with plan_output")
+            reservation = self._inference.plan_output(request, available)
+            if not isinstance(reservation, OutputReservation):
+                raise ContractError("plan_output must return an OutputReservation")
+            if (
+                reservation.kind == "model"
+                and request.max_output_tokens is not None
+                and reservation.tokens > request.max_output_tokens
+            ):
+                raise ContractError("Output plan cannot expand the prepared request ceiling")
+            request = replace(request, max_output_tokens=reservation.tokens)
         operation_id = uuid4().hex
-        self._run.start(operation_id, request)
+        self._run.start(operation_id, request, reservation)
         self._events.append(Event(operation_id, "started", ""))
         stage = "inference"
         try:

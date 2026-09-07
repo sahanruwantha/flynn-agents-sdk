@@ -1,9 +1,9 @@
 # Runtime and integration guide
 
 This describes the unreleased, breaking 0.2 API. `Budget`, `InMemoryStore`, and
-`SQLiteJournal` are removed. New execution uses schema 3. `SQLiteRun.inspect(path)`
-reads schema 2 or 3 as historical evidence without acquiring a writer or changing bytes;
-`SQLiteRun.open(path)` accepts only schema 3. No automatic conversion or compatibility
+`SQLiteJournal` are removed. New execution uses schema 4. `SQLiteRun.inspect(path)`
+reads schema 2, 3 or 4 as historical evidence without acquiring a writer or changing bytes;
+`SQLiteRun.open(path)` accepts only schema 4. No automatic conversion or compatibility
 adapter exists.
 
 ## One durable run
@@ -33,7 +33,7 @@ Validators still enforce argument legality. Tools and evaluators are trusted app
 `remaining()` derives inference/tool/external capacities from durable reservations. Failed
 attempts consume reservations; reopening cannot reset them. Wall time includes downtime;
 a backward clock refuses further work. Deadlines cancel cooperative async work, not blocking
-code or external processes. Token limits, pricing and dollar settlement are not implemented.
+code or external processes. Input-token limits, pricing and dollar settlement are not implemented.
 
 ## Inference results and accounting
 
@@ -113,3 +113,25 @@ replaying an external effect.
 step. Expansion is rejected before inference. `prepare_request` may narrow them further
 but cannot restore removed grants; the broker enforces the same effective permissions
 shown to inference. Overrides do not change later steps' construction-time authority.
+
+
+## Optional output-token cap
+
+Pass `RunLimits(..., output_tokens=...)` to cap model output across the run. Adapters
+must support the no-I/O `plan_output(request, available)` contract; unsupported adapters
+are refused before invocation. `DeepSeekAdapter` and `ScriptedAdapter` implement it.
+The store reserves the declared bound atomically with the operation before `generate`,
+and the provider receives that ceiling in `InferenceRequest.max_output_tokens`.
+
+`run.output_budget()` derives available, spent and held tokens plus unresolved and
+breached reservation counts. Known output usage releases the unused hold, including
+for rejected responses. Unknown output keeps the entire bound held and refuses later
+model calls, even if other capacity remains. Death before reporting is equally
+unresolved after explicit recovery; reopening cannot clear it. Scripted operations
+remain permitted under their separate tool, call and time limits and reserve zero.
+
+A response exceeding its reservation or misreporting its invocation kind remains in
+usage history, but cannot dispatch a tool or authorize another model request. A trusted
+adapter/provider must honor the ceiling; the SDK cannot undo an external violation.
+This cap does not limit input tokens or guarantee a dollar amount. Unknown input with
+known output still settles the output reservation accurately.

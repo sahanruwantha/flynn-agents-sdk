@@ -25,6 +25,8 @@ from flynn_agents_sdk.contracts import (
     Evaluation,
     InferenceRequest,
     InferenceUsage,
+    OutputBudget,
+    OutputReservation,
     PendingOperation,
     RunLimits,
     State,
@@ -33,9 +35,10 @@ from flynn_agents_sdk.contracts import (
     UnresolvedEffect,
     check_evaluation,
 )
+from flynn_agents_sdk.output_budget import output_budget
 
 APPLICATION_ID = 0x464C594E
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _json(value: Any) -> str:
@@ -130,7 +133,19 @@ class SQLiteRun:
                     "CREATE TABLE inference_usage (operation_id TEXT PRIMARY KEY NOT NULL "
                     "REFERENCES operations(id), payload TEXT NOT NULL)"
                 )
-                for table in ("reservations", "evaluations", "commits", "inference_usage"):
+                run._db.execute(
+                    "CREATE TABLE output_reservations (operation_id TEXT PRIMARY KEY NOT NULL "
+                    "REFERENCES operations(id), kind TEXT NOT NULL "
+                    "CHECK(kind IN ('model','scripted')), "
+                    "tokens INTEGER NOT NULL CHECK(tokens>=0))"
+                )
+                for table in (
+                    "reservations",
+                    "evaluations",
+                    "commits",
+                    "inference_usage",
+                    "output_reservations",
+                ):
                     for verb in ("UPDATE", "DELETE"):
                         run._db.execute(
                             f"CREATE TRIGGER immutable_{table}_{verb} BEFORE {verb} ON {table} "
@@ -166,7 +181,7 @@ class SQLiteRun:
             if app != APPLICATION_ID or version != SCHEMA_VERSION:
                 raise ContractError(
                     f"Unsupported Flynn database application/schema {app}/{version}; "
-                    "archive old evidence and create a new schema-3 run"
+                    "archive old evidence and create a new schema-4 run"
                 )
             if run._db.execute("SELECT count(*) FROM run").fetchone()[0] != 1:
                 raise ContractError("Database must contain exactly one run")
@@ -317,10 +332,48 @@ class SQLiteRun:
                 f"Operation {pending.id} needs explicit recovery from {pending.stage}"
             )
 
-    def start(self, operation_id: str, request: InferenceRequest) -> None:
+    def output_budget(self) -> OutputBudget:
+        row = dict(self._run())
+        if json.loads(row["limits"]).get("output_tokens") is None:
+            return OutputBudget(None, None)
+        # Admission needs compact accounting, never accumulated tool output or state.
+        return output_budget(
+            {
+                "run": [row],
+                "inference_usage": [
+                    dict(item) for item in self._db.execute("SELECT * FROM inference_usage")
+                ],
+                "output_reservations": [
+                    dict(item) for item in self._db.execute("SELECT * FROM output_reservations")
+                ],
+            }
+        )
+
+    def start(
+        self,
+        operation_id: str,
+        request: InferenceRequest,
+        output: OutputReservation | None = None,
+    ) -> None:
         with self._transaction():
             self.check_ready()
             self._require_time()
+            budget = self.output_budget()
+            if budget.limit is not None:
+                if not isinstance(output, OutputReservation):
+                    raise ContractError("Output-limited run requires an explicit reservation")
+                if request.max_output_tokens != output.tokens:
+                    raise ContractError("Request output ceiling must match its reservation")
+                if output.kind == "model":
+                    if budget.unresolved or budget.breached:
+                        raise BudgetExhausted(
+                            "Output usage is unresolved or its bound was breached; "
+                            "no further model request authorized"
+                        )
+                    if budget.available is None or output.tokens > budget.available:
+                        raise BudgetExhausted("Output reservation exceeds remaining token budget")
+            elif output is not None:
+                raise ContractError("Output reservation requires an output-limited run")
             if request.base != self.read():
                 raise ContractError("Inference request has a stale state revision")
             if not operation_id:
@@ -330,6 +383,11 @@ class SQLiteRun:
                 (operation_id, _json(asdict(request))),
             )
             self._reserve(operation_id, "inference")
+            if output is not None:
+                self._db.execute(
+                    "INSERT INTO output_reservations VALUES (?,?,?)",
+                    (operation_id, output.kind, output.tokens),
+                )
 
     def record_usage(self, operation_id: str, usage: InferenceUsage) -> None:
         """Append accounting before proposal validation, including failed inference.
@@ -344,6 +402,18 @@ class SQLiteRun:
             self._operation(operation_id, "inference")
             self._db.execute(
                 "INSERT INTO inference_usage VALUES (?,?)", (operation_id, _json(asdict(usage)))
+            )
+
+        # Preserve the report even when it proves the adapter violated its promise.
+        reserved = self._db.execute(
+            "SELECT kind,tokens FROM output_reservations WHERE operation_id=?", (operation_id,)
+        ).fetchone()
+        if reserved is not None and (
+            usage.kind != reserved["kind"]
+            or (usage.output_tokens is not None and usage.output_tokens > reserved["tokens"])
+        ):
+            raise ContractError(
+                "Inference output reservation was breached; usage retained, dispatch refused"
             )
 
     def usage_summary(self) -> dict[str, int | bool]:
@@ -362,7 +432,7 @@ class SQLiteRun:
             db.execute("BEGIN")
             app = db.execute("PRAGMA application_id").fetchone()[0]
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if app != APPLICATION_ID or version not in (2, SCHEMA_VERSION):
+            if app != APPLICATION_ID or version not in (2, 3, SCHEMA_VERSION):
                 raise ContractError(f"Unsupported Flynn audit application/schema {app}/{version}")
             tables: tuple[str, ...] = (
                 "run",
@@ -371,13 +441,16 @@ class SQLiteRun:
                 "evaluations",
                 "commits",
             )
-            if version == SCHEMA_VERSION:
+            if version >= 3:
                 tables += ("inference_usage",)
+            if version == SCHEMA_VERSION:
+                tables += ("output_reservations",)
             records = {
                 table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
                 for table in tables
             }
             records.setdefault("inference_usage", [])
+            records.setdefault("output_reservations", [])
             return records
         finally:
             db.close()
@@ -483,5 +556,6 @@ class SQLiteRun:
                 "evaluations",
                 "commits",
                 "inference_usage",
+                "output_reservations",
             )
         }

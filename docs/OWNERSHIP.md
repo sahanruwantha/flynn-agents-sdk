@@ -118,3 +118,33 @@ than mandatory deliberation gating.
 - **Success criterion:** accounting survives failed proposals and reopened runs;
   scripted operations never inflate unknown model usage. No ARC-score or VFX-quality
   improvement is inferred from accounting alone.
+
+## Output-token admission (schema 4)
+
+- **Failure/evidence:** usage records alone could not stop a new request or bound its
+  output. A successful diagnostic followed by an uncertain model response must not
+  reset spending capacity or prevent separately authorized deterministic work.
+- **Owner:** SDK reserves and enforces output ceilings; harnesses choose whether to
+  enable a cap, its value, and domain continuation. Input usage remains accounting
+  only: no verified pre-request input-token bound is available here. Prices and
+  dollar settlement remain out of scope.
+- **Contract:** `RunLimits.output_tokens` is optional. A capped runtime requires
+  `plan_output(request, available)` to produce an `OutputReservation` without I/O.
+  DeepSeek reserves at most its configured maximum and the remaining cap, then
+  sends the durable request ceiling as `max_tokens`. Scripted inference reserves zero.
+- **Durability:** schema 4 adds immutable `output_reservations`, inserted atomically
+  with the operation and inference reservation before generate. Known output counts
+  settle the hold; unknown/unreported output retains it and blocks new model calls.
+  Missing input usage does not erase a known output count. Breaches retain the actual
+  report, refuse tool dispatch, and block subsequent model calls. Enforcement relies
+  on the trusted adapter/provider honoring its declared bound; a provider violation
+  cannot be undone or represented as staying within budget.
+- **Consumers:** ARC exposes `--output-tokens` and reports the derived budget. VFX
+  accepts the same limit through its existing opt-in engine, publishes a v2 usage
+  projection and proves canonical scripted replay after output exhaustion. None of
+  these records changes accepted state, receipt authority or domain success.
+- **Validation:** offline HTTP, failed response, partial usage, process-death,
+  reservation immutability and historical schema-3 golden tests; both SSH consumer
+  gates. Schema 2 and 3 are audit-readable; only schema 4 authorizes execution.
+- **Success criterion:** refusal before another model request, durable uncertainty,
+  and exact consumed/held/available counts after reopen. No input or USD cap claimed.

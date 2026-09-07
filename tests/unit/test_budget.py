@@ -11,6 +11,8 @@ def test_limits_require_nonnegative_sqlite_integers(value):
         RunLimits(1, value, 1)
     with pytest.raises(ValueError):
         RunLimits(1, 1, value)
+    with pytest.raises(ValueError):
+        RunLimits(1, 1, 1, output_tokens=value)
 
 
 @pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])

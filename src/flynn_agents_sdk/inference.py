@@ -7,6 +7,7 @@ from flynn_agents_sdk.contracts import (
     InferenceRequest,
     InferenceResult,
     InferenceUsage,
+    OutputReservation,
     ToolCall,
 )
 
@@ -14,6 +15,9 @@ from flynn_agents_sdk.contracts import (
 class ScriptedAdapter:
     def __init__(self, calls: Iterable[ToolCall]) -> None:
         self._calls = iter(calls)
+
+    def plan_output(self, request: InferenceRequest, available: int) -> OutputReservation:
+        return OutputReservation("scripted", 0)
 
     async def generate(self, request: InferenceRequest) -> InferenceResult:
         try:
