@@ -4,300 +4,250 @@ from dataclasses import replace
 import pytest
 
 from flynn_agents_sdk import (
-    Budget,
     BudgetExhausted,
-    Candidate,
     ContractError,
     Evaluation,
-    InMemoryStore,
+    RunLimits,
     Runtime,
     ScriptedAdapter,
+    SQLiteRun,
     Tool,
     ToolBroker,
     ToolCall,
+    ToolSpec,
+    UnresolvedEffect,
     Verdict,
 )
-
-
-def validate(arguments):
-    if arguments != "4":
-        raise ValueError("expected 4")
 
 
 class Check:
     async def evaluate(self, candidate):
         return Evaluation(
-            candidate,
-            "successor/v1",
-            "integer successor",
-            Verdict.SATISFIED if candidate.output == "5" else Verdict.FAILED,
-            "Expected output 5",
+            candidate, "successor/v1", "integer", Verdict.SATISFIED, "Checked", "accepted:5"
         )
 
 
-def setup(
-    *,
-    call=None,
-    budget=None,
-    evaluator=None,
-    execute=None,
-    grants=("increment",),
-):
-    executions = []
+@pytest.fixture
+def run(tmp_path):
+    with SQLiteRun.create(
+        tmp_path / "run.db", run_id="test", initial_state="4", limits=RunLimits(3, 3, 2)
+    ) as value:
+        yield value
 
+
+def make(run, *, adapter=None, evaluator=None, execute=None, grants=("increment",), prepare=None):
     async def increment(arguments):
-        executions.append(arguments)
         return "5"
 
-    store = InMemoryStore("4")
-    runtime = Runtime(
-        inference=ScriptedAdapter([ToolCall("increment", "4") if call is None else call]),
-        tools=ToolBroker([Tool("increment", validate, execute or increment)]),
+    def validate(arguments):
+        if arguments != "4":
+            raise ValueError("Expected 4")
+
+    return Runtime(
+        inference=adapter or ScriptedAdapter([ToolCall("increment", "4")] * 3),
+        tools=ToolBroker([Tool("increment", validate, execute or increment, observation=True)]),
         evaluator=evaluator or Check(),
-        store=store,
-        budget=budget or Budget(inference_calls=1, tool_calls=1),
+        run=run,
         grants=grants,
+        prepare_request=prepare,
     )
-    return runtime, store, executions
 
 
-def test_complete_step():
-    runtime, store, executions = setup()
-    result = asyncio.run(runtime.step("increment"))
-    assert result.committed
-    assert store.read().value == "5"
-    assert store.read().revision == 1
-    assert executions == ["4"]
-    assert [event.stage for event in runtime.events] == [
-        "started",
-        "tool_dispatched",
-        "tool_returned",
-        "committed",
-    ]
+def test_observation_and_state_update_are_independent(run):
+    result = asyncio.run(make(run).step("increment"))
+    assert result.committed and result.state.revision == 1
+    assert result.candidate.output == "5"
+    assert run.latest_observation() == "5"
+    assert run.read().value == "accepted:5"
+    assert len(run.records()["commits"]) == 1
 
 
-@pytest.mark.parametrize(
-    ("call", "grants", "message"),
-    [
-        (ToolCall("increment", "4"), (), "not granted"),
-        (ToolCall("missing", "4"), ("missing",), "not registered"),
-        (ToolCall("increment", "wrong"), ("increment",), "Invalid arguments"),
-        ("I succeeded", ("increment",), "ToolCall"),
-        (ToolCall("increment", {"x": 4}), ("increment",), "must be strings"),
-    ],
-)
-def test_invalid_proposal_cannot_execute(call, grants, message):
-    runtime, store, executions = setup(call=call, grants=grants)
-    with pytest.raises(ContractError, match=message):
-        asyncio.run(runtime.step("increment"))
-    assert executions == []
-    assert store.read().revision == 0
-
-
-@pytest.mark.parametrize(("inference", "tools"), [(0, 1), (1, 0)])
-def test_exhausted_budget_prevents_dispatch(inference, tools):
-    runtime, store, executions = setup(budget=Budget(inference_calls=inference, tool_calls=tools))
-    with pytest.raises(BudgetExhausted):
-        asyncio.run(runtime.step("increment"))
-    assert executions == []
-    assert store.read().revision == 0
-
-
-@pytest.mark.parametrize("verdict", [Verdict.FAILED, Verdict.UNAVAILABLE])
-def test_nonpassing_evaluation_is_recorded_without_commit(verdict):
-    class Reject:
+@pytest.mark.parametrize("verdict", list(Verdict))
+@pytest.mark.parametrize("update", [None, "proposed"])
+def test_assessment_does_not_erase_observation_or_imply_commit(run, verdict, update):
+    class Assess:
         async def evaluate(self, candidate):
-            return Evaluation(candidate, "test/v1", "test", verdict, "No support")
+            return Evaluation(candidate, "test/v1", "test", verdict, "Checked", update)
 
-    runtime, store, _ = setup(evaluator=Reject())
-    result = asyncio.run(runtime.step("increment"))
-    assert not result.committed
-    assert store.read().revision == 0
-    assert runtime.events[-1].stage == "not_accepted"
-
-
-def test_success_string_is_not_evidence():
-    async def forged(arguments):
-        return "SUCCESS: task completed"
-
-    runtime, store, _ = setup(execute=forged)
-    assert not asyncio.run(runtime.step("increment")).committed
-    assert store.read().value == "4"
+    result = asyncio.run(make(run, evaluator=Assess()).step("test"))
+    assert result.committed == (verdict is Verdict.SATISFIED and update is not None)
+    assert run.latest_observation() == "5"
+    assert len(run.records()["evaluations"]) == 1
+    assert run.pending() is None
 
 
 @pytest.mark.parametrize(
-    "change",
+    "call,grants",
     [
-        {"output": "different"},
-        {"id": "other"},
-        {"call": ToolCall("other", "4")},
+        (ToolCall("increment", "wrong"), ("increment",)),
+        (ToolCall("missing", "4"), ("missing",)),
+        (ToolCall("increment", "4"), ()),
+        ("SUCCESS", ("increment",)),
+        (ToolCall("increment", {}), ("increment",)),
     ],
 )
-def test_mismatched_evaluation_rejected(change):
-    class Mismatch:
+def test_invalid_proposals_never_dispatch(run, call, grants):
+    async def forbidden(_):
+        pytest.fail("Invalid proposal executed")
+
+    with pytest.raises(ContractError):
+        asyncio.run(
+            make(run, adapter=ScriptedAdapter([call]), grants=grants, execute=forbidden).step(
+                "test"
+            )
+        )
+    assert run.remaining() == {"inference": 2, "tool": 3, "external": 2}
+    assert run.read().revision == 0
+    assert run.pending() is None
+
+
+@pytest.mark.parametrize(
+    "change", [{"output": "other"}, {"id": "other"}, {"call": ToolCall("other", "4")}]
+)
+def test_mismatched_evaluation_cannot_commit(run, change):
+    class Wrong:
         async def evaluate(self, candidate):
             return await Check().evaluate(replace(candidate, **change))
 
-    runtime, store, _ = setup(evaluator=Mismatch())
-    with pytest.raises(ContractError, match="exact candidate"):
-        asyncio.run(runtime.step("increment"))
-    assert store.read().revision == 0
+    with pytest.raises(ContractError):
+        asyncio.run(make(run, evaluator=Wrong()).step("test"))
+    assert run.read().revision == 0
+    assert run.pending().stage == "returned"
+    assert run.records()["evaluations"] == []
 
 
-def test_stale_revision_during_evaluation_is_rejected():
-    class ConcurrentUpdate:
+def test_explicit_recovery_evaluates_returned_result_without_repeating_tool(run):
+    class Broken:
         async def evaluate(self, candidate):
-            other = replace(candidate, id="other")
-            store.commit(other, await Check().evaluate(other))
-            return await Check().evaluate(candidate)
+            raise RuntimeError("evaluator crashed")
 
-    runtime, store, _ = setup(evaluator=ConcurrentUpdate())
-    with pytest.raises(ContractError, match="Stale candidate"):
-        asyncio.run(runtime.step("increment"))
-    assert store.read().revision == 1
-    assert runtime.events[-1].detail == "commit: ContractError"
-
-
-def test_tool_failure_consumes_budget_and_marks_unknown_effect():
-    attempts = []
-
-    async def fails(arguments):
-        attempts.append(arguments)
-        raise OSError("lost response")
-
-    budget = Budget(inference_calls=1, tool_calls=1)
-    runtime, store, _ = setup(execute=fails, budget=budget)
-    with pytest.raises(OSError, match="lost response"):
-        asyncio.run(runtime.step("increment"))
-    assert attempts == ["4"]
-    assert budget.tools_remaining == 0
-    assert budget.inference_remaining == 0
-    assert store.read().revision == 0
-    assert runtime.events[-1].stage == "effect_unknown"
+    with pytest.raises(RuntimeError):
+        asyncio.run(make(run, evaluator=Broken()).step("test"))
+    counts = run.remaining()
+    with pytest.raises(ContractError, match="recovery"):
+        asyncio.run(make(run).step("test"))
+    result = asyncio.run(make(run).recover())
+    assert result.committed and run.remaining() == counts
+    assert asyncio.run(make(run).recover()) is None
 
 
-def test_cancellation_during_dispatch_is_not_retried():
-    async def scenario():
-        entered = asyncio.Event()
-        attempts = []
+@pytest.mark.parametrize("exception", [OSError("lost result"), asyncio.CancelledError()])
+def test_unknown_effect_stays_blocked(run, exception):
+    async def broken(_):
+        raise exception
 
-        async def slow(arguments):
-            attempts.append(arguments)
-            entered.set()
-            await asyncio.Event().wait()
-
-        budget = Budget(inference_calls=1, tool_calls=1)
-        runtime, store, _ = setup(execute=slow, budget=budget)
-        task = asyncio.create_task(runtime.step("increment"))
-        await entered.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert runtime.events[-1].stage == "effect_unknown"
-        assert store.read().revision == 0
-        assert attempts == ["4"]
-        assert budget.tools_remaining == 0
-
-    asyncio.run(scenario())
+    with pytest.raises(type(exception)):
+        asyncio.run(make(run, execute=broken).step("test"))
+    assert run.pending().stage == "dispatched"
+    assert run.remaining()["tool"] == 2
+    with pytest.raises(UnresolvedEffect):
+        asyncio.run(make(run).recover())
+    with pytest.raises(UnresolvedEffect):
+        asyncio.run(make(run).step("retry"))
 
 
-def test_cancellation_before_dispatch_has_no_tool_effect():
-    class CancelInference:
+def test_cancellation_before_dispatch_preserves_spend_without_unknown_effect(run):
+    class Cancel:
         async def generate(self, request):
             raise asyncio.CancelledError
 
-    store = InMemoryStore()
-    runtime = Runtime(
-        inference=CancelInference(),
-        tools=ToolBroker([]),
-        evaluator=Check(),
-        store=store,
-        budget=Budget(inference_calls=1, tool_calls=1),
-        grants=(),
-    )
     with pytest.raises(asyncio.CancelledError):
+        asyncio.run(make(run, adapter=Cancel()).step("test"))
+    assert run.pending() is None
+    assert run.remaining() == {"inference": 2, "tool": 3, "external": 2}
+
+
+@pytest.mark.parametrize("reopen", [False, True])
+def test_terminal_run_never_spends(run, reopen):
+    run.finish("completed")
+    path = run.path
+    if reopen:
+        run.close()
+        run = SQLiteRun.open(path)
+    try:
+        with pytest.raises(ContractError, match="already ended"):
+            asyncio.run(make(run).step("test"))
+        assert run.remaining() == {"inference": 3, "tool": 3, "external": 2}
+        assert run.records()["operations"] == []
+    finally:
+        if reopen:
+            run.close()
+
+
+def test_finishing_during_inference_still_blocks_dispatch(run):
+    class End:
+        async def generate(self, request):
+            run.finish("cancelled")
+            return ToolCall("increment", "4")
+
+    with pytest.raises(ContractError, match="already ended"):
+        asyncio.run(make(run, adapter=End()).step("test"))
+    assert run.remaining()["tool"] == 3
+
+
+def test_grants_are_narrowed_and_not_restored_by_preparation(run):
+    runtime = make(run, prepare=lambda request: replace(request, allowed_tools=("increment",)))
+    with pytest.raises(ContractError, match="expand"):
+        asyncio.run(runtime.step("test", grants=()))
+    assert run.remaining()["inference"] == 3
+    with pytest.raises(ContractError, match="expand"):
+        asyncio.run(runtime.step("test", grants=("other",)))
+    assert asyncio.run(runtime.step("test")).committed
+
+
+def test_prepared_narrowing_is_enforced_at_dispatch(run):
+    runtime = make(run, prepare=lambda request: replace(request, allowed_tools=()))
+    with pytest.raises(ContractError, match="not granted"):
         asyncio.run(runtime.step("test"))
-    assert runtime.events[-1].stage == "cancelled"
-    assert store.read().revision == 0
+    assert run.remaining()["tool"] == 3
 
 
-def test_steps_on_one_runtime_are_serialized():
+def test_prepared_domain_schema_reaches_inference(run):
+    schema = ToolSpec("increment", "Only the current legal move", '{"const":4}')
+
+    class Inspect:
+        async def generate(self, request):
+            assert request.tools == (schema,)
+            return ToolCall("increment", "4")
+
+    runtime = make(
+        run, adapter=Inspect(), prepare=lambda request: replace(request, tools=(schema,))
+    )
+    assert asyncio.run(runtime.step("test")).committed
+
+
+def test_prepared_state_cannot_be_substituted(run):
+    runtime = make(
+        run, prepare=lambda request: replace(request, base=replace(request.base, value="forged"))
+    )
+    with pytest.raises(ContractError, match="substitute"):
+        asyncio.run(runtime.step("test"))
+    assert run.remaining()["inference"] == 3
+
+
+def test_two_runtimes_cannot_mutate_one_run_concurrently(run):
     async def scenario():
-        entered = asyncio.Event()
-        release = asyncio.Event()
-        bases = []
+        entered, release = asyncio.Event(), asyncio.Event()
 
-        class Adapter:
-            async def generate(self, request):
-                bases.append(request.base.revision)
-                return ToolCall("increment", "4")
-
-        async def slow(arguments):
+        async def slow(_):
             entered.set()
             await release.wait()
             return "5"
 
-        store = InMemoryStore("4")
-        runtime = Runtime(
-            inference=Adapter(),
-            tools=ToolBroker([Tool("increment", validate, slow)]),
-            evaluator=Check(),
-            store=store,
-            budget=Budget(inference_calls=2, tool_calls=2),
-            grants=("increment",),
-        )
-        first = asyncio.create_task(runtime.step("one"))
+        first = asyncio.create_task(make(run, execute=slow).step("first"))
         await entered.wait()
-        second = asyncio.create_task(runtime.step("two"))
+        with pytest.raises(UnresolvedEffect):
+            await make(run).step("second")
         release.set()
-        results = await asyncio.gather(first, second)
-        assert bases == [0, 1]
-        assert [result.state.revision for result in results] == [1, 2]
+        await first
 
     asyncio.run(scenario())
 
 
-def test_store_refuses_nonpassing_direct_publication():
-    store = InMemoryStore("4")
-    candidate = Candidate("id", store.read(), ToolCall("increment", "4"), "5")
-    evaluation = Evaluation(candidate, "test/v1", "test", Verdict.FAILED, "Rejected")
-    with pytest.raises(ContractError, match="satisfied"):
-        store.commit(candidate, evaluation)
-    assert store.read().revision == 0
-
-
-def test_step_grants_cannot_expand_or_be_ignored():
-    runtime, _, executions = setup()
-    with pytest.raises(ContractError, match="expand"):
-        asyncio.run(runtime.step("test", grants=("other",)))
-    assert executions == []
-    with pytest.raises(ContractError, match="not granted"):
-        asyncio.run(runtime.step("test", grants=()))
-    assert executions == []
-
-
-def test_prepared_request_narrowing_is_enforced():
-    runtime, _, executions = setup()
-    runtime._prepare_request = lambda request: replace(request, allowed_tools=())
-    with pytest.raises(ContractError, match="not granted"):
+def test_exhausted_inference_budget_blocks_provider(run):
+    runtime = make(run)
+    for _ in range(3):
         asyncio.run(runtime.step("test"))
-    assert executions == []
-
-
-def test_prepared_request_cannot_restore_removed_grants():
-    runtime, _, executions = setup()
-    runtime._prepare_request = lambda request: replace(request, allowed_tools=("increment",))
-    with pytest.raises(ContractError, match="expand"):
-        asyncio.run(runtime.step("test", grants=()))
-    assert executions == []
-
-
-def test_step_override_does_not_change_later_authority():
-    runtime, _, executions = setup(
-        budget=Budget(inference_calls=2, tool_calls=1),
-    )
-    # Expansion is refused before inference, leaving the scripted call available.
-    with pytest.raises(ContractError):
-        asyncio.run(runtime.step("test", grants=("other",)))
-    assert asyncio.run(runtime.step("test")).committed
-    assert executions == ["4"]
+    with pytest.raises(BudgetExhausted):
+        asyncio.run(runtime.step("test"))
+    assert len(run.records()["operations"]) == 3

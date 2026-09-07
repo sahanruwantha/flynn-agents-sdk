@@ -1,10 +1,9 @@
 # Runtime architecture
 
-Status: mixed implementation and target design. The first slice implements async,
-sequential execution, scripted inference, trusted tool validation, operation budgets,
-scoped evaluation binding, in-memory revision checks, SQLite action/result/evaluation
-records, external action limits, and cooperative deadlines. Full durable event replay,
-accepted-state recovery, retrieval, local model transport, and confinement remain proposed.
+Status: the unreleased 0.2 kernel uses a single SQLite run for state, requests,
+reservations, effects and evaluations. See the [runtime guide](guides/runtime.md) for
+implemented behavior and limitations. External environment restoration, usage settlement,
+and confinement remain application responsibilities or future work.
 
 The current threat model treats inference proposals as untrusted data and the kernel,
 registered tools, evaluators, and storage implementation as trusted code in one event
@@ -44,7 +43,7 @@ Model adapters cannot run tools or declare a task successful.
 Task + policy + selected state
   → compile context → reserve budget → inference → validate proposal
   → authorized tool execution → capture result → application evaluation
-  → commit matching output / return typed finding / stop
+  → publish explicit state update / retain observation / stop
 ```
 
 ## Authority and uncertainty
@@ -61,31 +60,15 @@ publication requires an actual process/filesystem boundary, not a private constr
 
 ## Durability and replay
 
-Implemented: the optional SQLite journal commits intent before dispatch, result before
-assessment, and the exact bound evaluation before state publication. Results survive
-rejected predictions and evaluator exceptions. Observation-producing tools explicitly opt
-in; internal tool results cannot replace the latest environment observation. Reopening
-an unfinished dispatch blocks new actions. An application-recorded terminal outcome closes
-the journal to dispatch. Journal schema 1 rejects unsupported versions. SQLite connections
-are owned by the composing application; the runtime does not close them.
+`SQLiteRun` is required by the default composition. An exclusive local owner spans awaits;
+short transactions reserve work before execution and atomically publish the bound evaluation
+with an optional accepted state revision. Reopening restores recorded state and operation
+budgets. Explicit recovery can re-evaluate returned evidence, never replay an unknown effect.
+Schema 1 is rejected. This is not VFX authority, scene reconstruction or domain acceptance.
 
-The journal does not persist accepted-state commits, remaining budgets, inference requests,
-or a complete event trace. It supports evidence inspection and conservative stopping, not
-resuming an environment or proving exactly-once effects. A single application writer must
-own the episode, including interpretation and evaluation. The following broader design
-remains a target:
-
-An append-only event stream records attempted operations and their outcomes. Selected
-state points to immutable records. A commit requires the expected base revision and
-matching evaluation inputs. Reject stale bases; never silently rebase accepted work.
-Start with complete relevant-input binding and broad invalidation. Narrow dependency
-invalidation only once all actual reads are captured and tested.
-
-Replay means reconstructing decisions from recorded inputs and outputs. It does not
-promise identical fresh model sampling or arbitrary rollback of an external environment.
-An interrupted environment action may have happened without an observed response.
-Mark that effect unknown; reconcile only if the adapter can prove the outcome. Do not
-repeat a move automatically because a request timed out.
+A satisfied observation does not imply a state change. The application evaluator supplies an
+explicit state update or none. The application alone declares domain completion. The SDK
+cannot make filesystem artifact publication atomic with its own database transaction.
 
 ## Isolation
 

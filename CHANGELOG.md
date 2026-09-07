@@ -5,6 +5,25 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-07
+
+Prepared on the SQLite development branch; not tagged or published.
+
+### Fixed
+
+- Terminal journal episodes refuse runtime steps before inference or budget reservation,
+  including after reopening. The transactional pre-dispatch check remains in place.
+
+### Breaking 0.2 changes
+
+- Replace separate in-memory state, budgets and SQLiteJournal with SQLiteRun schema 2.
+  Old APIs are removed and old databases refused.
+- Persist requests and operation reservations; publish evaluations and optional state updates
+  atomically. Observation-only evaluations do not create meaningless state revisions.
+- Enforce exclusive local run ownership and explicit conservative recovery.
+- Required context must fit; preserve application-prepared tool schemas.
+- Validate process-death boundaries, including death inside state publication.
+
 ### Changed
 
 - Repository made private by owner request; installation guidance uses authenticated SSH.

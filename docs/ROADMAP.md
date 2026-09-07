@@ -1,5 +1,8 @@
 # Coordinated roadmap
 
+Historical design checkpoint: implementation descriptions below refer to 0.1. The breaking
+0.2 SQLite contracts and current limitations are in [the runtime guide](guides/runtime.md).
+
 Status: SDK runtime and ARC toy integration implemented; a partial phase-2 journal is
 implemented. Hosted DeepSeek vision is implemented for development smoke tests; local inference and
 official ARC integration remain planned.

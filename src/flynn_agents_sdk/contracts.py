@@ -4,6 +4,7 @@ Payloads are strings so records cannot retain caller-owned mutable objects.
 Applications define payload formats and validate tool arguments.
 """
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -81,6 +82,7 @@ class Evaluation:
     scope: str
     verdict: Verdict
     reason: str
+    state_update: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,20 +112,14 @@ class Evaluator(Protocol):
         ...
 
 
-class StateStore(Protocol):
-    def read(self) -> State: ...
-
-    def commit(self, candidate: Candidate, evaluation: Evaluation) -> State:
-        """Atomically check the base and evaluation before publication."""
-        ...
-
-
 def check_evaluation(candidate: Candidate, evaluation: Evaluation) -> None:
     """Check full input binding, including rejected and unavailable evaluations."""
     if not isinstance(evaluation, Evaluation) or evaluation.candidate != candidate:
         raise ContractError("Evaluation does not bind the exact candidate")
     if not isinstance(evaluation.verdict, Verdict):
         raise ContractError("Evaluation verdict must be a Verdict member")
+    if evaluation.state_update is not None and not isinstance(evaluation.state_update, str):
+        raise ContractError("State update must be a string or None for observation-only work")
     for field in (evaluation.evaluator, evaluation.scope, evaluation.reason):
         if not isinstance(field, str) or not field.strip():
             raise ContractError("Evaluation requires nonempty evaluator, scope, and reason")
@@ -133,19 +129,44 @@ class UnresolvedEffect(ContractError):
     """A prior dispatch has no recorded result; external reconciliation is required."""
 
 
-class Journal(Protocol):
-    """One episode's evidence, independent of accepted application state."""
+@dataclass(frozen=True)
+class RunLimits:
+    inference_calls: int
+    tool_calls: int
+    external_actions: int
+    wall_time_seconds: float | None = None
 
+    def __post_init__(self) -> None:
+        for value in (self.inference_calls, self.tool_calls, self.external_actions):
+            if type(value) is not int or not 0 <= value < 2**63:
+                raise ValueError("Operation limits must be nonnegative SQLite integers")
+        if self.wall_time_seconds is not None and (
+            not math.isfinite(self.wall_time_seconds) or self.wall_time_seconds <= 0
+        ):
+            raise ValueError("Wall time must be finite and positive")
+
+
+@dataclass(frozen=True)
+class PendingOperation:
+    id: str
+    stage: str
+    candidate: Candidate | None
+
+
+class RunStore(Protocol):
+    """One exclusively owned durable run; implementations own atomic publication."""
+
+    def read(self) -> State: ...
+    def outcome(self) -> str | None: ...
     def latest_observation(self) -> str | None: ...
-
-    def unresolved(self) -> tuple[str, ...]: ...
-
-    def begin(
-        self, step_id: str, base: State, call: ToolCall, *, observation: bool = False
-    ) -> None:
-        """Durably claim dispatch, refusing any outstanding unresolved dispatch."""
-        ...
-
-    def returned(self, step_id: str, output: str) -> None: ...
-
-    def evaluated(self, step_id: str, evaluation: Evaluation) -> None: ...
+    def pending(self) -> PendingOperation | None: ...
+    @property
+    def seconds_remaining(self) -> float | None: ...
+    def check_ready(self) -> None: ...
+    def start(self, operation_id: str, request: InferenceRequest) -> None: ...
+    def proposed(self, operation_id: str, call: ToolCall) -> None: ...
+    def dispatch(self, operation_id: str, *, observation: bool, external_action: bool) -> None: ...
+    def returned(self, operation_id: str, output: str) -> Candidate: ...
+    def complete(self, evaluation: Evaluation) -> StepResult: ...
+    def failed(self, operation_id: str, error: str) -> None: ...
+    def abandon_undispatched(self, operation_id: str) -> None: ...

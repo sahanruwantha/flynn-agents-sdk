@@ -1,202 +1,285 @@
+"""Schema-2 replacements for the schema-1 journal invariants, plus durable commits."""
+
 import asyncio
-import json
+import os
+import sqlite3
 import subprocess
 import sys
+from dataclasses import replace
 
 import pytest
 
 from flynn_agents_sdk import (
-    Budget,
     BudgetExhausted,
     ContractError,
     Evaluation,
-    InMemoryStore,
-    Runtime,
-    ScriptedAdapter,
-    SQLiteJournal,
+    InferenceRequest,
+    RunLimits,
+    SQLiteRun,
     State,
-    Tool,
-    ToolBroker,
     ToolCall,
     UnresolvedEffect,
     Verdict,
 )
 
 
-class Reject:
-    async def evaluate(self, candidate):
-        return Evaluation(
-            candidate, "prediction/v1", "prediction", Verdict.FAILED, "Wrong prediction"
+def create(path, limits=None):
+    return SQLiteRun.create(
+        path,
+        run_id="test",
+        initial_state="base",
+        initial_observation="frame",
+        limits=limits or RunLimits(3, 3, 2),
+    )
+
+
+def dispatch(run, name="a", *, observation=True, external=False):
+    run.start(name, InferenceRequest("test", run.read(), ("act",)))
+    run.proposed(name, ToolCall("act", "{}"))
+    run.dispatch(name, observation=observation, external_action=external)
+
+
+def test_reopen_restores_state_evidence_and_budget(tmp_path):
+    path = tmp_path / "run.db"
+    with create(path) as run:
+        dispatch(run, external=True)
+        candidate = run.returned("a", "observed")
+        run.complete(
+            Evaluation(candidate, "test/v1", "update", Verdict.SATISFIED, "checked", "new state")
         )
+    with SQLiteRun.open(path) as run:
+        assert run.read() == State(1, "new state")
+        assert run.latest_observation() == "observed"
+        assert run.remaining() == {"inference": 2, "tool": 2, "external": 1}
+        assert run.pending() is None
+        with pytest.raises(ContractError):
+            run.complete(
+                Evaluation(
+                    candidate, "test/v1", "update", Verdict.SATISFIED, "checked", "new state"
+                )
+            )
+        assert len(run.records()["commits"]) == 1
 
 
-def make_runtime(journal, execute, *, inference=None, budget=None, observation=True):
-    return Runtime(
-        inference=inference or ScriptedAdapter([ToolCall("act", "next")] * 3),
-        tools=ToolBroker([Tool("act", lambda _: None, execute, True, observation)]),
-        evaluator=Reject(),
-        store=InMemoryStore("initial accepted state"),
-        budget=budget or Budget(inference_calls=3, tool_calls=3),
-        grants=("act",),
-        journal=journal,
-    )
+def test_failed_prediction_and_internal_diagnostic_preserve_observation(tmp_path):
+    with create(tmp_path / "run.db") as run:
+        dispatch(run)
+        candidate = run.returned("a", "new frame")
+        run.complete(Evaluation(candidate, "prediction/v1", "prediction", Verdict.FAILED, "wrong"))
+        dispatch(run, "b", observation=False)
+        candidate = run.returned("b", "diagnostic")
+        run.complete(
+            Evaluation(candidate, "diagnostic/v1", "diagnostic", Verdict.SATISFIED, "valid")
+        )
+        assert run.latest_observation() == "new frame"
+        assert run.read().revision == 0
+        assert len(run.records()["evaluations"]) == 2
 
 
-def test_rejected_prediction_preserves_observation_and_next_context(tmp_path):
-    requests = []
-
-    class Adapter:
-        async def generate(self, request):
-            requests.append(request)
-            return ToolCall("act", "next")
-
-    async def action(_):
-        return "new observation"
-
-    path = tmp_path / "episode.sqlite"
-    with SQLiteJournal(path, initial_observation="initial observation") as journal:
-        runtime = make_runtime(journal, action, inference=Adapter())
-        first = asyncio.run(runtime.step("test"))
-        assert not first.committed
-        asyncio.run(runtime.step("test"))
-    assert requests[0].observation == "initial observation"
-    assert requests[1].observation == "new observation"
-    assert requests[1].base.value == "initial accepted state"
-    with SQLiteJournal(path) as journal:
-        assert journal.latest_observation() == "new observation"
-        assert json.loads(journal.entries()[0].evaluation)["verdict"] == "failed"
+def test_atomic_commit_rolls_back_evaluation_on_failure(tmp_path):
+    path = tmp_path / "run.db"
+    with create(path) as run:
+        dispatch(run)
+        candidate = run.returned("a", "observed")
+        # Inject failure after evaluation insertion but before commit insertion.
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "CREATE TRIGGER injected BEFORE INSERT ON commits "
+                "BEGIN SELECT RAISE(ABORT,'injected'); END"
+            )
+        evaluation = Evaluation(candidate, "test/v1", "test", Verdict.SATISFIED, "checked", "next")
+        with pytest.raises(sqlite3.IntegrityError, match="injected"):
+            run.complete(evaluation)
+        assert run.read() == State(0, "base")
+        assert run.records()["evaluations"] == []
+        assert run.pending().stage == "returned"
+        with sqlite3.connect(path) as db:
+            db.execute("DROP TRIGGER injected")
+        assert run.complete(evaluation).state == State(1, "next")
 
 
-def test_internal_tool_result_does_not_replace_environment_observation(tmp_path):
-    async def action(_):
-        return "hypothesis"
+@pytest.mark.parametrize(
+    "limits,kind",
+    [
+        (RunLimits(0, 3, 2), "inference"),
+        (RunLimits(3, 0, 2), "tool"),
+        (RunLimits(3, 3, 0), "external"),
+    ],
+)
+def test_budget_failure_is_atomic(tmp_path, limits, kind):
+    with create(tmp_path / "run.db", limits) as run:
+        with pytest.raises(BudgetExhausted, match=kind):
+            dispatch(run, external=True)
+        remaining = run.remaining()
+        assert remaining["tool"] == limits.tool_calls
+        assert remaining["external"] == limits.external_actions
 
-    with SQLiteJournal(tmp_path / "episode.sqlite", initial_observation="frame") as journal:
-        asyncio.run(make_runtime(journal, action, observation=False).step("think"))
-        assert journal.latest_observation() == "frame"
-        assert journal.entries()[0].output == "hypothesis"
 
-
-def test_process_death_after_external_effect_blocks_dispatch_on_reopen(tmp_path):
-    path = tmp_path / "episode.sqlite"
-    effect = tmp_path / "external-effect"
-    process = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import os, sys\n"
-            "from pathlib import Path\n"
-            "from flynn_agents_sdk import SQLiteJournal, State, ToolCall\n"
-            "journal = SQLiteJournal(sys.argv[1])\n"
-            "journal.begin('crashed', State(0, ''), ToolCall('act', 'next'))\n"
-            "Path(sys.argv[2]).write_text('action happened')\n"
-            "os._exit(23)\n",
-            str(path),
-            str(effect),
-        ],
-        check=False,
-    )
-    assert process.returncode == 23
-    assert effect.read_text() == "action happened"
-
-    async def forbidden(_):
-        pytest.fail("Unresolved action was repeated")
-
-    with SQLiteJournal(path) as journal:
+def test_duplicate_result_and_pending_attempt_refused(tmp_path):
+    with create(tmp_path / "run.db") as run:
+        dispatch(run)
         with pytest.raises(UnresolvedEffect):
-            asyncio.run(make_runtime(journal, forbidden).step("retry"))
-        assert journal.unresolved() == ("crashed",)
-        assert len(journal.entries()) == 1
+            dispatch(run, "b")
+        run.returned("a", "one")
+        with pytest.raises(ContractError):
+            run.returned("a", "two")
+        with pytest.raises(ContractError, match="recovery"):
+            dispatch(run, "b")
 
 
-def test_timeout_during_action_preserves_unknown_effect(tmp_path):
-    async def action(_):
+def test_live_owner_blocks_second_writer(tmp_path):
+    path = tmp_path / "run.db"
+    with create(path):
+        with pytest.raises(ContractError, match="live owner"):
+            SQLiteRun.open(path)
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from flynn_agents_sdk import SQLiteRun; import sys; SQLiteRun.open(sys.argv[1])",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert process.returncode != 0 and "live owner" in process.stderr
+    with SQLiteRun.open(path):
+        pass
+
+
+@pytest.mark.parametrize(
+    "point,stage,revision",
+    [
+        ("reserved", "inference", 0),
+        ("proposed", "proposed", 0),
+        ("dispatched", "dispatched", 0),
+        ("returned", "returned", 0),
+        ("committed", None, 1),
+    ],
+)
+def test_process_death_reopens_exact_durable_boundary(tmp_path, point, stage, revision):
+    path = tmp_path / "run.db"
+    script = """
+import os,sys
+from flynn_agents_sdk import *
+p,point=sys.argv[1:]
+r=SQLiteRun.create(p,run_id='crash',initial_state='old',limits=RunLimits(3,3,3))
+r.start('a',InferenceRequest('test',r.read(),('act',)))
+if point=='reserved': os._exit(23)
+r.proposed('a',ToolCall('act','{}'))
+if point=='proposed': os._exit(23)
+r.dispatch('a',observation=True,external_action=True)
+if point=='dispatched': os._exit(23)
+c=r.returned('a','observed')
+if point=='returned': os._exit(23)
+r.complete(Evaluation(c,'test/v1','test',Verdict.SATISFIED,'checked','new'))
+os._exit(23)
+"""
+    assert subprocess.run([sys.executable, "-c", script, str(path), point]).returncode == 23
+    with SQLiteRun.open(path) as run:
+        assert run.read().revision == revision
+        assert (run.pending().stage if run.pending() else None) == stage
+        assert run.remaining()["inference"] == 2
+        assert len(run.records()["evaluations"]) == revision
+        if stage in ("inference", "proposed"):
+            run.abandon_undispatched("a")
+            assert run.pending() is None
+            assert run.remaining()["inference"] == 2
+        elif stage == "dispatched":
+            with pytest.raises(UnresolvedEffect):
+                run.check_ready()
+
+
+def test_unsupported_schema_and_existing_create_refused(tmp_path):
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as db:
+        db.execute("PRAGMA user_version=1")
+    with pytest.raises(ContractError, match="Unsupported"):
+        SQLiteRun.open(path)
+    with pytest.raises(FileExistsError):
+        create(path)
+    with pytest.raises(FileNotFoundError):
+        SQLiteRun.open(tmp_path / "missing")
+
+
+def test_terminal_state_survives_and_cannot_be_overwritten(tmp_path):
+    path = tmp_path / "run.db"
+    with create(path) as run:
+        run.finish("completed")
+        with pytest.raises(ContractError):
+            run.finish("failed")
+    with SQLiteRun.open(path) as run:
+        assert run.outcome() == "completed"
+        with pytest.raises(ContractError, match="already ended"):
+            dispatch(run)
+
+
+def test_forged_or_stale_evaluation_does_not_publish(tmp_path):
+    with create(tmp_path / "run.db") as run:
+        dispatch(run)
+        candidate = run.returned("a", "observed")
+        wrong = replace(candidate, base=State(99, "forged"))
+        with pytest.raises(ContractError, match="exact candidate"):
+            run.complete(Evaluation(wrong, "test/v1", "test", Verdict.SATISFIED, "checked", "bad"))
+        assert run.read().revision == 0
+
+
+def test_timeout_preserves_unknown_effect(tmp_path):
+    from flynn_agents_sdk import Runtime, ScriptedAdapter, Tool, ToolBroker
+
+    class Check:
+        async def evaluate(self, candidate):
+            pytest.fail("Unreturned action evaluated")
+
+    async def stalled(_):
         await asyncio.Event().wait()
-        return "unreachable"
 
-    path = tmp_path / "timeout.sqlite"
-    with SQLiteJournal(path) as journal:
-        runtime = make_runtime(
-            journal,
-            action,
-            budget=Budget(inference_calls=3, tool_calls=3, wall_time_seconds=0.1),
+    with create(tmp_path / "run.db", RunLimits(1, 1, 1, 0.1)) as run:
+        runtime = Runtime(
+            inference=ScriptedAdapter([ToolCall("act", "{}")]),
+            tools=ToolBroker([Tool("act", lambda _: None, stalled)]),
+            evaluator=Check(),
+            run=run,
+            grants=("act",),
         )
         with pytest.raises(TimeoutError):
             asyncio.run(runtime.step("test"))
-        assert runtime.events[-1].stage == "effect_unknown"
-    with SQLiteJournal(path) as journal:
-        assert len(journal.unresolved()) == 1
+        assert run.pending().stage == "dispatched"
+        assert run.remaining()["tool"] == 0
 
 
-def test_action_budget_refuses_dispatch_without_creating_intent(tmp_path):
-    async def forbidden(_):
-        pytest.fail("Budget should prevent dispatch")
-
-    with SQLiteJournal(tmp_path / "budget.sqlite") as journal:
-        budget = Budget(inference_calls=2, tool_calls=2, external_actions=0)
-        with pytest.raises(BudgetExhausted, match="External action"):
-            asyncio.run(make_runtime(journal, forbidden, budget=budget).step("test"))
-        assert journal.entries() == ()
-        assert budget.tools_remaining == 2
-
-
-def test_journal_refuses_overwrite_and_competing_dispatch(tmp_path):
-    path = tmp_path / "episode.sqlite"
-    with SQLiteJournal(path) as first, SQLiteJournal(path) as second:
-        first.begin("a", State(0, "base"), ToolCall("act", "next"))
-        with pytest.raises(UnresolvedEffect):
-            second.begin("b", State(0, "base"), ToolCall("act", "next"))
-        first.returned("a", "result")
-        with pytest.raises(ContractError):
-            first.returned("a", "altered history")
-
-
-def test_terminal_outcome_survives_reopen_and_prevents_new_dispatch(tmp_path):
-    path = tmp_path / "finished.sqlite"
-    with SQLiteJournal(path) as journal:
-        journal.finish("budget_exhausted")
-        with pytest.raises(ContractError, match="already ended"):
-            journal.finish("completed")
-    with SQLiteJournal(path) as journal:
-        assert journal.outcome() == "budget_exhausted"
-        with pytest.raises(ContractError, match="already ended"):
-            journal.begin("new", State(0, ""), ToolCall("act", "next"))
+def test_process_death_inside_publication_rolls_back_both_records(tmp_path):
+    path = tmp_path / "run.db"
+    script = """
+import os,sys
+from flynn_agents_sdk import *
+r=SQLiteRun.create(sys.argv[1],run_id='crash',initial_state='old',limits=RunLimits(1,1,1))
+r.start('a',InferenceRequest('test',r.read(),('act',)))
+r.proposed('a',ToolCall('act','{}'))
+r.dispatch('a',observation=True,external_action=True)
+c=r.returned('a','observed')
+r._db.create_function('die',0,lambda:os._exit(24))
+r._db.execute('CREATE TEMP TRIGGER die BEFORE INSERT ON commits BEGIN SELECT die(); END')
+r.complete(Evaluation(c,'test/v1','test',Verdict.SATISFIED,'checked','new'))
+"""
+    assert subprocess.run([sys.executable, "-c", script, str(path)]).returncode == 24
+    with SQLiteRun.open(path) as run:
+        assert run.read() == State(0, "old")
+        assert run.records()["evaluations"] == []
+        assert run.records()["commits"] == []
+        assert run.pending().candidate.output == "observed"
+        assert run.remaining() == {"inference": 0, "tool": 0, "external": 0}
 
 
-def test_cancellation_after_action_does_not_allow_another_dispatch(tmp_path):
-    async def action(_):
-        raise asyncio.CancelledError
-
-    path = tmp_path / "cancelled.sqlite"
-    with SQLiteJournal(path) as journal:
-        runtime = make_runtime(journal, action)
-        with pytest.raises(asyncio.CancelledError):
-            asyncio.run(runtime.step("act"))
-    with SQLiteJournal(path) as journal:
-        with pytest.raises(UnresolvedEffect):
-            asyncio.run(make_runtime(journal, action).step("act"))
-
-
-def test_evaluator_crash_does_not_erase_returned_result(tmp_path):
-    class Broken:
-        async def evaluate(self, candidate):
-            raise RuntimeError("broken evaluator")
-
-    async def action(_):
-        return "observed"
-
-    with SQLiteJournal(tmp_path / "evaluation.sqlite") as journal:
-        runtime = Runtime(
-            inference=ScriptedAdapter([ToolCall("act", "next")]),
-            tools=ToolBroker([Tool("act", lambda _: None, action, observation=True)]),
-            evaluator=Broken(),
-            store=InMemoryStore(),
-            budget=Budget(inference_calls=1, tool_calls=1),
-            grants=("act",),
-            journal=journal,
-        )
-        with pytest.raises(RuntimeError, match="broken evaluator"):
-            asyncio.run(runtime.step("test"))
-        assert journal.latest_observation() == "observed"
-        assert journal.unresolved() == ()
-        assert journal.entries()[0].evaluation is None
+def test_fork_cannot_reuse_inherited_owner(tmp_path):
+    with create(tmp_path / "run.db") as run:
+        pid = os.fork()
+        if pid == 0:
+            try:
+                run.finish("forged child outcome")
+            except ContractError:
+                os._exit(0)
+            os._exit(1)
+        _, status = os.waitpid(pid, 0)
+        assert os.waitstatus_to_exitcode(status) == 0
+        assert run.outcome() is None

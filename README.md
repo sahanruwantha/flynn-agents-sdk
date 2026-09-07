@@ -6,7 +6,7 @@
 A small Python runtime for agents whose tool permissions, budgets, observations, and
 state changes need to be explicit and inspectable.
 
-**Experimental API · Python 3.11+ · Apache-2.0**
+**Experimental 0.2 API (unreleased) · local POSIX · Python 3.11+ · Apache-2.0**
 
 Models propose tool calls. Your application validates arguments, supplies tools and an
 independent evaluator, and decides what success means. Flynn coordinates one bounded
@@ -14,7 +14,9 @@ step at a time. It has no required third-party runtime dependencies; DeepSeek is
 
 ## Install (private repository)
 
-An SSH key authorized for this repository is required. Install a tagged release:
+An SSH key authorized for this repository is required. The 0.2 branch is not released;
+install this checkout for development (`uv sync --extra dev`). The previous release uses
+the incompatible 0.1 API:
 
 ```bash
 python -m pip install "flynn-agents-sdk @ git+ssh://git@github.com/sahanruwantha/flynn-agents-sdk.git@v0.1.0"
@@ -44,17 +46,17 @@ connect a model. Applications supply the loop around `await runtime.step(objecti
 - **Enforced tool grants:** per-step overrides can narrow permissions; the broker
   enforces the same permitted tools shown to inference.
 - **Bounded execution:** inference, tool, external-action, and cooperative time limits.
-- **Evaluated state:** immutable records and revision-checked in-memory commits.
-- **SQLite evidence:** durable intent, returned results, and evaluations; unresolved
+- **Evaluated state:** explicit optional state updates, atomically persisted with evaluations.
+- **SQLite evidence:** durable requests, reservations, intents, results, evaluations and state; unresolved
   dispatches block further execution instead of triggering automatic retries.
 - **Context selection:** whole items chosen within a character budget, with explicit
-  evidence IDs and omissions.
+  evidence IDs and omissions; required items must fit.
 - **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
   traces, and typed response errors. No hidden agent loop or automatic retries.
 
 Flynn runs trusted application code in the same process. It is not a sandbox. Deadlines
-cannot preempt blocking Python. Journals do not automatically restore accepted state or
-budgets, reconcile external effects, or certify task completion. See the
+cannot preempt blocking Python. SQLiteRun restores recorded state and remaining operation budgets. It cannot
+restore a Blender scene, reconcile external effects, or certify task completion. See the
 [runtime guide](docs/guides/runtime.md) for these boundaries.
 
 ## Keep ARC Harness on the current SDK

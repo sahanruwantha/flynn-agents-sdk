@@ -1,14 +1,16 @@
-"""Run with: uv run python examples/scripted_task.py."""
+"""A complete durable operation without a provider key."""
 
 import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from flynn_agents_sdk import (
-    Budget,
     Candidate,
     Evaluation,
-    InMemoryStore,
+    RunLimits,
     Runtime,
     ScriptedAdapter,
+    SQLiteRun,
     Tool,
     ToolBroker,
     ToolCall,
@@ -16,43 +18,44 @@ from flynn_agents_sdk import (
 )
 
 
-def validate_integer(arguments: str) -> None:
-    int(arguments)
+def validate(arguments: str) -> None:
+    if arguments != "4":
+        raise ValueError("Expected 4")
 
 
 async def increment(arguments: str) -> str:
     return str(int(arguments) + 1)
 
 
-class IncrementEvaluator:
+class Check:
     async def evaluate(self, candidate: Candidate) -> Evaluation:
-        expected = int(candidate.base.value) + 1
-        passed = candidate.call.arguments == candidate.base.value and candidate.output == str(
-            expected
-        )
         return Evaluation(
             candidate,
-            "increment/v1",
-            "one integer successor",
-            Verdict.SATISFIED if passed else Verdict.FAILED,
-            f"Expected {expected}; observed {candidate.output}",
+            "successor/v1",
+            "integer successor",
+            Verdict.SATISFIED if candidate.output == "5" else Verdict.FAILED,
+            "Expected output 5",
+            state_update=candidate.output,
         )
 
 
 async def main() -> None:
-    runtime = Runtime(
-        inference=ScriptedAdapter([ToolCall("increment", "4")]),
-        tools=ToolBroker([Tool("increment", validate_integer, increment)]),
-        evaluator=IncrementEvaluator(),
-        store=InMemoryStore("4"),
-        budget=Budget(inference_calls=1, tool_calls=1),
-        grants=("increment",),
-    )
-    result = await runtime.step("Increment the current integer once")
-    print(f"Accepted: {result.committed}; revision: {result.state.revision}")
-    print(f"State: {result.state.value}")
-    for event in runtime.events:
-        print(f"{event.stage}: {event.detail}")
+    with TemporaryDirectory() as folder:
+        path = Path(folder) / "run.sqlite"
+        with SQLiteRun.create(
+            path, run_id="example", initial_state="4", limits=RunLimits(1, 1, 0)
+        ) as run:
+            runtime = Runtime(
+                inference=ScriptedAdapter([ToolCall("increment", "4")]),
+                tools=ToolBroker([Tool("increment", validate, increment)]),
+                evaluator=Check(),
+                run=run,
+                grants=("increment",),
+            )
+            result = await runtime.step("Increment 4")
+            print(f"Accepted update: {result.committed}; revision: {result.state.revision}")
+        with SQLiteRun.open(path) as recovered:
+            print(f"Reopened state: {recovered.read().value}; budget: {recovered.remaining()}")
 
 
 if __name__ == "__main__":

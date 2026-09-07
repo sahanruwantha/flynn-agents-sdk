@@ -1,6 +1,6 @@
 [project]
 name = "flynn-agents-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "A custom agent runtime for bounded reasoning, tool execution, and evidence-backed state."
 readme = "README.md"
 requires-python = ">=3.11"

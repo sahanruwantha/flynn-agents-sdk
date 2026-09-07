@@ -9,6 +9,7 @@ class ContextItem:
     text: str
     priority: int = 0
     evidence_ids: tuple[str, ...] = ()
+    required: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,10 +40,12 @@ class ContextCompiler:
         evidence: list[str] = []
         parts: list[str] = []
         size = 0
-        for item in sorted(items, key=lambda item: -item.priority):
+        for item in sorted(items, key=lambda item: (not item.required, -item.priority)):
             part = f"[{item.id}]\n{item.text}"
             cost = len(part) + (2 if parts else 0)
             if size + cost > self.max_characters:
+                if item.required:
+                    raise ValueError(f"Required context item {item.id!r} exceeds context budget")
                 omitted.append(item.id)
                 continue
             parts.append(part)

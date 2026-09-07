@@ -1,35 +1,63 @@
 # Runtime and integration guide
 
-## Recorded environment episodes
+This describes the unreleased, breaking 0.2 API. `Budget`, `InMemoryStore`, and
+`SQLiteJournal` are removed. Schema-1 databases are refused; preserve them as historical
+evidence and start fresh. No automatic conversion or compatibility adapter exists.
 
-Pass `journal=SQLiteJournal(path, initial_observation=...)` to `Runtime`. Register environment
-operations with `Tool(..., external_action=True, observation=True)`. All tool results are
-recorded before evaluation; only observation tools update `InferenceRequest.observation`.
-A failed prediction cannot erase a returned observation. `request.base` still refers to
-accepted application state, so consumers must not mistake it for current environment state.
+## One durable run
 
-`Budget(..., external_actions=100, wall_time_seconds=60)` separately bounds external
-attempts and total elapsed episode time, starting at budget construction. Failed attempts
-consume capacity. Deadlines cancel cooperative async work; they cannot preempt blocking
-Python or replace a confined worker. Token accounting is not implemented.
+Create `SQLiteRun.create(path, run_id=..., initial_state=..., limits=RunLimits(...))`
+and pass `run=run` to `Runtime`. The application owns its context-manager lifetime.
+Creation refuses an existing path. `SQLiteRun.open(path)` acquires exclusive local
+ownership and restores recorded state, observation, reservations and terminal outcome.
+A live owner refuses a second writer, including another instance in the same process.
+Forked children cannot mutate an inherited store. Read-only SQLite inspection is allowed.
 
-Use one journal and one action writer per episode. The application calls `journal.finish`
-with its terminal outcome; the SDK does not certify completion. Reopen with `SQLiteJournal`
-to inspect `entries()`, `latest_observation()`, `outcome()`, and `unresolved()`. A durable
-intent without a result prevents further dispatch. There is no automatic action replay,
-accepted-state restoration, budget restoration, or reconciliation API. A recorded evaluation
-is not evidence that an in-memory commit happened. Choose a fresh path for each new episode.
+The runtime persists the prepared request and inference reservation before inference;
+it persists validated dispatch intent and tool/action reservations before execution.
+Returned output is durable before evaluation. Evaluation and an optional accepted state
+revision publish in one transaction. `Evaluation.state_update=None` records an assessment
+without a commit. A satisfied evaluation with an explicit string publishes that string;
+tool output is never implicitly state. Failed/unavailable evaluations retain the proposal
+and observation without publishing it. Domain completion remains application-owned.
 
-The adjacent `arc-harness` checkout provides a three-action toy episode, including a failed
-prediction that remains in recorded history. See its README for the runnable command.
+Mark environment tools `observation=True`; other tools cannot replace the latest environment
+observation. `prepare_request` chooses the feedback and may narrow grants and schemas. The
+runtime preserves that choice; it does not accumulate history into the next request.
+Validators still enforce argument legality. Tools and evaluators are trusted application code.
 
-## Bounded context selection
+## Interruption and budgets
 
-`ContextCompiler(max_characters=...)` selects whole `ContextItem` records by application
-priority and returns a `ContextPacket` with included IDs, omitted IDs, and evidence IDs.
-It never silently truncates an item. Character budgets are not token or image budgets.
-ARC's episode memory uses this utility while owning all spatial representations, beliefs,
-and retrieval relevance. The SDK does not assign domain meanings to remembered evidence.
+`remaining()` derives inference/tool/external capacities from durable reservations. Failed
+attempts consume reservations; reopening cannot reset them. Wall time includes downtime;
+a backward clock refuses further work. Deadlines cancel cooperative async work, not blocking
+code or external processes. Token/USD accounting and provider-neutral usage settlement are
+not implemented by this store.
+
+`pending()` distinguishes interrupted inference, proposal, dispatch and returned output.
+Explicit `await runtime.recover()` abandons undispatched attempts without refund or re-evaluates
+a recorded result without calling inference or a tool. A dispatched operation without a
+result raises `UnresolvedEffect`. Recovery never repeats an uncertain operation. There is
+no generic external-effect reconciler or environment restore. Applications must not use
+this method to claim safe VFX session resume.
+
+`finish(outcome)` records application-owned terminal text. A terminal run refuses steps
+before preparation or spending, and refuses commits. Recorded late tool results remain
+available as evidence. A terminal outcome does not clear an unresolved dispatch.
+`records()` is a derived inspection export, never an import or second state authority.
+
+SQLite uses local rollback journaling and `synchronous=FULL`, with short transactions;
+no transaction spans inference or tool execution. Large artifacts remain external. Hashes
+identify evaluations; they are not signatures or protection against a malicious database
+writer. Filesystem/hardware durability assumptions are those of SQLite's
+[atomic commit protocol](https://www.sqlite.org/atomiccommit.html).
+
+## Bounded context
+
+`ContextCompiler` selects whole items within a character budget. `ContextItem(required=True)`
+is selected before optional priority items; if required content cannot fit, compilation fails.
+The packet reports included, omitted and evidence IDs. The harness chooses relevance and
+which inputs are required. This does not account for provider tokens or images.
 
 DeepSeek traces include `rejection_reason`, `choice_count`, and `tool_call_count`
 for response-contract failures. Invalid response bodies and argument strings are omitted;

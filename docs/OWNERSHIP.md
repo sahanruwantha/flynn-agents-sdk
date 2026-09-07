@@ -38,7 +38,7 @@ it does not replace semantic review.
 
 The broker invokes application validators; it does not currently implement generic
 JSON Schema validation. The SDK context compiler is not a domain retrieval engine.
-The journal is not automatic accepted-state or environment recovery.
+SQLiteRun restores recorded accepted state and reservations; it does not restore an environment.
 
 ## Classification of changes already made
 
