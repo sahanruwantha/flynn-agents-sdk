@@ -14,12 +14,11 @@ step at a time. It has no required third-party runtime dependencies; DeepSeek is
 
 ## Install (private repository)
 
-An SSH key authorized for this repository is required. The 0.2 branch is not released;
-install this checkout for development (`uv sync --extra dev`). The previous release uses
-the incompatible 0.1 API:
+An SSH key authorized for this private repository is required. Development and consumers
+use `main`; the experimental 0.2 API is not tagged or published to PyPI:
 
 ```bash
-python -m pip install "flynn-agents-sdk @ git+ssh://git@github.com/sahanruwantha/flynn-agents-sdk.git@v0.1.0"
+python -m pip install "flynn-agents-sdk @ git+ssh://git@github.com/sahanruwantha/flynn-agents-sdk.git@main"
 ```
 
 For DeepSeek, use `flynn-agents-sdk[deepseek]` in the same requirement. Wheels and source
@@ -39,9 +38,16 @@ uv run python examples/scripted_task.py
 The [complete example](examples/scripted_task.py) uses scripted inference to propose
 incrementing `4`, executes the registered tool, independently checks `5`, and commits
 revision 1. Replace `ScriptedAdapter` with an implementation of `InferenceAdapter` to
-connect a model. Applications supply the loop around `await runtime.step(objective)`.
+connect a model. Applications may supply the loop around `await runtime.step(objective)` or use
+[Session](docs/guides/sessions.md) with explicit step/stop policy.
 
 ## Included
+
+See the [SDK cutover readiness checklist](docs/SDK_READINESS.md) for scope and limitations.
+
+- **Native structured tools:** immutable text/image observations and structured data.
+- **Dispatch guards:** required decisions are durable and enforced before tool dispatch.
+- **Session lifecycle:** explicit continuation/stop policy and durable event notifications.
 
 - **Enforced tool grants:** per-step overrides can narrow permissions; the broker
   enforces the same permitted tools shown to inference.
@@ -53,10 +59,10 @@ connect a model. Applications supply the loop around `await runtime.step(objecti
   dispatches block further execution instead of triggering automatic retries.
 - **Context selection:** whole items chosen within a character budget, with explicit
   evidence IDs and omissions; required items must fit.
-- **Provider-neutral accounting:** `InferenceResult` carries a proposal and usage; schema 4
+- **Provider-neutral accounting:** `InferenceResult` carries a proposal and usage; schema 5
   records known, unknown and not-applicable usage, including rejected responses.
-  Missing reports remain unreported. `SQLiteRun.inspect` reads schemas 2 and 3 for audit only;
-  execution requires a new schema-4 run.
+  Missing reports remain unreported. `SQLiteRun.inspect` reads schemas 2–4 for audit only;
+  execution requires a new schema-5 run.
 - **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
   traces, and typed response errors. No hidden agent loop or automatic retries.
 

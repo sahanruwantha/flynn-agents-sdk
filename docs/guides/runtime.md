@@ -1,3 +1,7 @@
+Current execution requires SQLite schema 5. See [dispatch guards](dispatch-guards.md)
+and the [SDK readiness checklist](../SDK_READINESS.md) for the latest contracts.
+Historical schema discussions below describe their implementation checkpoints.
+
 # Runtime and integration guide
 
 This describes the unreleased, breaking 0.2 API. `Budget`, `InMemoryStore`, and

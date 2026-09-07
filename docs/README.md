@@ -1,8 +1,12 @@
 # Documentation
 
-## Using the released package
+## Using SDK main
 
 - [Getting started](../README.md)
+- [SDK cutover readiness](SDK_READINESS.md)
+- [Native structured tools](guides/structured-tools.md)
+- [Bounded sessions](guides/sessions.md)
+- [Dispatch guards and lifecycle events](guides/dispatch-guards.md)
 - [Runtime, journals, context, and failure handling](guides/runtime.md)
 - [DeepSeek adapter](guides/deepseek.md)
 - [Package layout](PROJECT_STRUCTURE.md)

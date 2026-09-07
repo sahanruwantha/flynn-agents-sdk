@@ -6,6 +6,7 @@ Applications define payload formats and validate tool arguments.
 
 import asyncio
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
@@ -289,6 +290,41 @@ class PendingOperation:
     candidate: Candidate | None
 
 
+class DispatchDenied(ContractError):
+    """An application guard refused a validated call before tool dispatch."""
+
+
+@dataclass(frozen=True)
+class GuardDecision:
+    allowed: bool
+    reason: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.allowed) is not bool
+            or not isinstance(self.reason, str)
+            or not self.reason.strip()
+        ):
+            raise ContractError("Guard decisions require a boolean and nonempty reason")
+
+
+@dataclass(frozen=True)
+class GuardContext:
+    operation_id: str
+    request: InferenceRequest
+    call: ToolCall
+
+
+@dataclass(frozen=True)
+class DispatchGuard:
+    id: str
+    check: Callable[[GuardContext], Awaitable[GuardDecision]]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not self.id.strip() or not callable(self.check):
+            raise ContractError("Dispatch guard requires a nonempty identity and callable check")
+
+
 class RunStore(Protocol):
     """One exclusively owned durable run; implementations own atomic publication."""
 
@@ -300,13 +336,18 @@ class RunStore(Protocol):
     def seconds_remaining(self) -> float | None: ...
     def check_ready(self) -> None: ...
     def finish(self, outcome: str) -> None: ...
+    def completed_operations(self) -> int: ...
     def output_budget(self) -> OutputBudget: ...
     def start(
         self,
         operation_id: str,
         request: InferenceRequest,
         output: OutputReservation | None = None,
+        *,
+        guards: tuple[str, ...] = (),
     ) -> None: ...
+    def record_guard(self, operation_id: str, guard_id: str, decision: GuardDecision) -> None: ...
+    def record_event(self, event: Event) -> None: ...
     def record_usage(self, operation_id: str, usage: InferenceUsage) -> None: ...
     def proposed(self, operation_id: str, call: ToolCall) -> None: ...
     def dispatch(self, operation_id: str, *, observation: bool, external_action: bool) -> None: ...

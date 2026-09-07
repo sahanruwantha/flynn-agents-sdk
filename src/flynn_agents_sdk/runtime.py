@@ -7,8 +7,12 @@ from uuid import uuid4
 
 from flynn_agents_sdk.contracts import (
     ContractError,
+    DispatchDenied,
+    DispatchGuard,
     Evaluator,
     Event,
+    GuardContext,
+    GuardDecision,
     InferenceAdapter,
     InferenceCancelled,
     InferenceFailure,
@@ -39,7 +43,15 @@ class Runtime:
         run: RunStore,
         grants: tuple[str, ...],
         prepare_request: Callable[[InferenceRequest], InferenceRequest] | None = None,
+        guards: tuple[DispatchGuard, ...] = (),
+        on_event: Callable[[Event], None] | None = None,
     ) -> None:
+        if type(guards) is not tuple or any(not isinstance(g, DispatchGuard) for g in guards):
+            raise ContractError("Guards must be a tuple of DispatchGuard values")
+        if len({g.id for g in guards}) != len(guards):
+            raise ContractError("Dispatch guard identities must be unique")
+        self._guards = guards
+        self._on_event = on_event
         self._prepare_request = prepare_request
         self._inference = inference
         self._tools = tools
@@ -48,6 +60,12 @@ class Runtime:
         self._grants = tuple(grants)
         self._lock = asyncio.Lock()
         self._events: list[Event] = []
+
+    def _emit(self, event: Event, *, notify: bool = True) -> None:
+        self._run.record_event(event)
+        self._events.append(event)
+        if notify and self._on_event is not None:
+            self._on_event(event)
 
     @property
     def events(self) -> tuple[Event, ...]:
@@ -98,10 +116,12 @@ class Runtime:
                 raise ContractError("Output plan cannot expand the prepared request ceiling")
             request = replace(request, max_output_tokens=reservation.tokens)
         operation_id = uuid4().hex
-        self._run.start(operation_id, request, reservation)
-        self._events.append(Event(operation_id, "started", ""))
+        self._run.start(
+            operation_id, request, reservation, guards=tuple(g.id for g in self._guards)
+        )
         stage = "inference"
         try:
+            self._emit(Event(operation_id, "started", ""))
             try:
                 response = await self._inference.generate(request)
             except (InferenceFailure, InferenceCancelled) as error:
@@ -114,26 +134,42 @@ class Runtime:
             call = response.call
             self._run.proposed(operation_id, call)
             stage = "validation"
+            self._emit(Event(operation_id, "inference_returned", ""))
             tool = self._tools.prepare(call, effective)
+            stage = "guard"
+            for guard in self._guards:
+                decision = await guard.check(GuardContext(operation_id, request, call))
+                if not isinstance(decision, GuardDecision):
+                    raise ContractError("Guard must return GuardDecision")
+                self._run.record_guard(operation_id, guard.id, decision)
+                self._emit(
+                    Event(
+                        operation_id,
+                        "guard_allowed" if decision.allowed else "guard_denied",
+                        guard.id,
+                    )
+                )
+                if not decision.allowed:
+                    raise DispatchDenied(f"Guard {guard.id!r} refused: {decision.reason}")
+            stage = "dispatch"
             self._run.dispatch(
                 operation_id, observation=tool.observation, external_action=tool.external_action
             )
             stage = "tool"
-            self._events.append(Event(operation_id, "tool_dispatched", call.name))
+            self._emit(Event(operation_id, "tool_dispatched", call.name))
             output = await tool.execute(call.arguments)
             candidate = self._run.returned(operation_id, output)
-            self._events.append(Event(operation_id, "tool_returned", call.name))
             stage = "evaluation"
+            self._emit(Event(operation_id, "tool_returned", call.name))
             result = self._run.complete(await self._evaluator.evaluate(candidate))
-            self._events.append(
-                Event(operation_id, "committed" if result.committed else "observed", "")
-            )
+            stage = "notification"
+            self._emit(Event(operation_id, "committed" if result.committed else "observed", ""))
             return result
         except BaseException as error:
             # Root boundary records diagnostics, preserving cancellation and programming errors.
             self._run.failed(operation_id, f"{stage}: {type(error).__name__}")
             outcome = "effect_unknown" if stage == "tool" else "failed"
-            self._events.append(Event(operation_id, outcome, stage))
+            self._emit(Event(operation_id, outcome, stage), notify=False)
             raise
 
     async def recover(self) -> StepResult | None:

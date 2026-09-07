@@ -9,7 +9,9 @@ from typing import Literal
 from flynn_agents_sdk.contracts import (
     BudgetExhausted,
     ContractError,
+    DispatchGuard,
     Evaluator,
+    Event,
     InferenceAdapter,
     InferenceRequest,
     RunStore,
@@ -111,6 +113,8 @@ class Session:
         policy: Callable[[SessionView], SessionStep | SessionStop],
         prepare_request: Callable[[InferenceRequest], InferenceRequest] | None = None,
         on_step: Callable[[StepResult], None] | None = None,
+        guards: tuple[DispatchGuard, ...] = (),
+        on_event: Callable[[Event], None] | None = None,
     ) -> None:
         self._run = run
         self._runtime = Runtime(
@@ -120,6 +124,8 @@ class Session:
             run=run,
             grants=grants,
             prepare_request=prepare_request,
+            guards=guards,
+            on_event=on_event,
         )
         self._policy = policy
         self._on_step = on_step
@@ -137,6 +143,7 @@ class Session:
                 raise ContractError("Run already ended; create a fresh session")
             if self._run.pending() is not None:
                 raise UnresolvedEffect("Session cannot recover a pending operation")
+            baseline = self._run.completed_operations()
             count = 0
             last: StepResult | None = None
             try:
@@ -175,6 +182,7 @@ class Session:
                 else:
                     kind = "failed"
                 # Exception text can contain credentials or payloads; persist only its type.
+                count = self._run.completed_operations() - baseline
                 termination = SessionTermination(kind, type(exc).__name__, count)
                 self._run.finish(termination.to_json())
                 raise

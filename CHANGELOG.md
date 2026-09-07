@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add schema-5 durable dispatch guards and live lifecycle notifications. Missing or
+  denied decisions refuse tool dispatch. Schemas 2–4 remain audit-readable only.
+- Count durable session completions even when their final notification fails.
+
 - Add explicit bounded sessions driven by application step/stop policy, with durable
   typed termination, cancellation propagation and no automatic retry or recovery.
 

@@ -22,7 +22,10 @@ from flynn_agents_sdk.contracts import (
     BudgetExhausted,
     Candidate,
     ContractError,
+    DispatchDenied,
     Evaluation,
+    Event,
+    GuardDecision,
     InferenceRequest,
     InferenceUsage,
     OutputBudget,
@@ -38,7 +41,7 @@ from flynn_agents_sdk.contracts import (
 from flynn_agents_sdk.output_budget import output_budget
 
 APPLICATION_ID = 0x464C594E
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _json(value: Any) -> str:
@@ -139,12 +142,32 @@ class SQLiteRun:
                     "CHECK(kind IN ('model','scripted')), "
                     "tokens INTEGER NOT NULL CHECK(tokens>=0))"
                 )
+                run._db.execute(
+                    "CREATE TABLE guard_requirements (operation_id TEXT NOT NULL "
+                    "REFERENCES operations(id), "
+                    "guard_id TEXT NOT NULL, PRIMARY KEY(operation_id,guard_id))"
+                )
+                run._db.execute(
+                    "CREATE TABLE guard_decisions (operation_id TEXT NOT NULL, "
+                    "guard_id TEXT NOT NULL, "
+                    "payload TEXT NOT NULL, PRIMARY KEY(operation_id,guard_id), "
+                    "FOREIGN KEY(operation_id,guard_id) "
+                    "REFERENCES guard_requirements(operation_id,guard_id))"
+                )
+                run._db.execute(
+                    "CREATE TABLE lifecycle_events (sequence INTEGER PRIMARY KEY, "
+                    "operation_id TEXT NOT NULL REFERENCES operations(id), "
+                    "stage TEXT NOT NULL, detail TEXT NOT NULL)"
+                )
                 for table in (
                     "reservations",
                     "evaluations",
                     "commits",
                     "inference_usage",
                     "output_reservations",
+                    "guard_requirements",
+                    "guard_decisions",
+                    "lifecycle_events",
                 ):
                     for verb in ("UPDATE", "DELETE"):
                         run._db.execute(
@@ -181,7 +204,7 @@ class SQLiteRun:
             if app != APPLICATION_ID or version != SCHEMA_VERSION:
                 raise ContractError(
                     f"Unsupported Flynn database application/schema {app}/{version}; "
-                    "archive old evidence and create a new schema-4 run"
+                    "archive old evidence and create a new schema-5 run"
                 )
             if run._db.execute("SELECT count(*) FROM run").fetchone()[0] != 1:
                 raise ContractError("Database must contain exactly one run")
@@ -366,7 +389,15 @@ class SQLiteRun:
         operation_id: str,
         request: InferenceRequest,
         output: OutputReservation | None = None,
+        *,
+        guards: tuple[str, ...] = (),
     ) -> None:
+        if (
+            type(guards) is not tuple
+            or any(not isinstance(g, str) or not g.strip() for g in guards)
+            or len(set(guards)) != len(guards)
+        ):
+            raise ContractError("Required guards must have unique nonempty identities")
         with self._transaction():
             self.check_ready()
             self._require_time()
@@ -394,12 +425,51 @@ class SQLiteRun:
                 "INSERT INTO operations(id,stage,request) VALUES (?,'inference',?)",
                 (operation_id, _json(asdict(request))),
             )
+            self._db.executemany(
+                "INSERT INTO guard_requirements VALUES (?,?)",
+                [(operation_id, guard_id) for guard_id in guards],
+            )
             self._reserve(operation_id, "inference")
             if output is not None:
                 self._db.execute(
                     "INSERT INTO output_reservations VALUES (?,?,?)",
                     (operation_id, output.kind, output.tokens),
                 )
+
+    def record_guard(self, operation_id: str, guard_id: str, decision: GuardDecision) -> None:
+        if not isinstance(decision, GuardDecision):
+            raise ContractError("Guard must return GuardDecision")
+        with self._transaction():
+            self._require_open()
+            self._operation(operation_id, "proposed")
+            if (
+                self._db.execute(
+                    "SELECT 1 FROM guard_requirements WHERE operation_id=? AND guard_id=?",
+                    (operation_id, guard_id),
+                ).fetchone()
+                is None
+            ):
+                raise ContractError("Guard decision was not required for this operation")
+            self._db.execute(
+                "INSERT INTO guard_decisions VALUES (?,?,?)",
+                (operation_id, guard_id, _json(asdict(decision))),
+            )
+
+    def record_event(self, event: Event) -> None:
+        if (
+            not isinstance(event, Event)
+            or not isinstance(event.stage, str)
+            or not event.stage
+            or not isinstance(event.detail, str)
+        ):
+            raise ContractError("Lifecycle event requires a stage and textual detail")
+        with self._transaction():
+            self._require_open()
+            self._operation(event.step_id)
+            self._db.execute(
+                "INSERT INTO lifecycle_events(operation_id,stage,detail) VALUES (?,?,?)",
+                (event.step_id, event.stage, event.detail),
+            )
 
     def record_usage(self, operation_id: str, usage: InferenceUsage) -> None:
         """Append accounting before proposal validation, including failed inference.
@@ -444,7 +514,7 @@ class SQLiteRun:
             db.execute("BEGIN")
             app = db.execute("PRAGMA application_id").fetchone()[0]
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if app != APPLICATION_ID or version not in (2, 3, SCHEMA_VERSION):
+            if app != APPLICATION_ID or version not in (2, 3, 4, SCHEMA_VERSION):
                 raise ContractError(f"Unsupported Flynn audit application/schema {app}/{version}")
             tables: tuple[str, ...] = (
                 "run",
@@ -455,14 +525,18 @@ class SQLiteRun:
             )
             if version >= 3:
                 tables += ("inference_usage",)
-            if version == SCHEMA_VERSION:
+            if version >= 4:
                 tables += ("output_reservations",)
+            if version >= 5:
+                tables += ("guard_requirements", "guard_decisions", "lifecycle_events")
             records = {
                 table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
                 for table in tables
             }
             records.setdefault("inference_usage", [])
             records.setdefault("output_reservations", [])
+            for table in ("guard_requirements", "guard_decisions", "lifecycle_events"):
+                records.setdefault(table, [])
             return records
         finally:
             db.close()
@@ -486,6 +560,19 @@ class SQLiteRun:
         with self._transaction():
             self._require_time()
             self._operation(operation_id, "proposed")
+            guards = self._db.execute(
+                "SELECT r.guard_id,d.payload FROM guard_requirements r LEFT JOIN guard_decisions d "
+                "ON r.operation_id=d.operation_id AND r.guard_id=d.guard_id WHERE r.operation_id=?",
+                (operation_id,),
+            ).fetchall()
+            for row in guards:
+                if row["payload"] is None:
+                    raise DispatchDenied(
+                        f"Required guard {row['guard_id']!r} has no recorded decision"
+                    )
+                decision = GuardDecision(**json.loads(row["payload"]))
+                if not decision.allowed:
+                    raise DispatchDenied(f"Guard {row['guard_id']!r} refused: {decision.reason}")
             self._reserve(operation_id, "tool")
             if external_action:
                 self._reserve(operation_id, "external")
@@ -557,6 +644,14 @@ class SQLiteRun:
                 (operation_id,),
             )
 
+    def completed_operations(self) -> int:
+        """Count durable evaluated operations, including notification failures after completion."""
+        return int(
+            self._db.execute("SELECT count(*) FROM operations WHERE stage='completed'").fetchone()[
+                0
+            ]
+        )
+
     def records(self) -> dict[str, list[dict[str, Any]]]:
         """A derived inspection export, never an import or second state authority."""
         return {
@@ -569,5 +664,8 @@ class SQLiteRun:
                 "commits",
                 "inference_usage",
                 "output_reservations",
+                "guard_requirements",
+                "guard_decisions",
+                "lifecycle_events",
             )
         }
