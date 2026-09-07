@@ -45,3 +45,12 @@ def policy(view):
 Tools, evaluator, run, adapter and request preparation are passed directly to Session, just
 as to Runtime. No provider client, filesystem tool, domain acceptance rule or model prompt
 is hidden in the SDK's session driver.
+
+An optional `on_rejection(error, view)` policy can return an explicit `SessionStep` or
+`SessionStop` after a certified pre-dispatch `ProposalRejected` (argument validation)
+or provider-neutral `InferenceRejected` (response contract). Without it, rejection remains
+terminal. DeepSeek's `ProviderResponseRejected` implements the neutral contract.
+The runtime certifies the stage after recording failure; exceptions with these same types
+from tools, guards or notification callbacks do not qualify. The policy may re-raise to
+stop. Corrections spend the existing RunLimits and do not increment completed_steps.
+There is no automatic retry, grant expansion, or replay of uncertain effects.

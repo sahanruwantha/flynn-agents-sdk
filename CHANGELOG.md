@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add opt-in session rejection policy for certified pre-dispatch argument/response
+  failures, with provider-neutral InferenceRejected and existing budget enforcement.
+
 - Add schema-5 durable dispatch guards and live lifecycle notifications. Missing or
   denied decisions refuse tool dispatch. Schemas 2–4 remain audit-readable only.
 - Count durable session completions even when their final notification fails.

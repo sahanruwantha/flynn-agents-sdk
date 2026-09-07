@@ -16,10 +16,12 @@ from flynn_agents_sdk.contracts import (
     InferenceAdapter,
     InferenceCancelled,
     InferenceFailure,
+    InferenceRejected,
     InferenceRequest,
     InferenceResult,
     OutputBoundedInference,
     OutputReservation,
+    ProposalRejected,
     RunStore,
     StepResult,
     UnresolvedEffect,
@@ -60,6 +62,7 @@ class Runtime:
         self._grants = tuple(grants)
         self._lock = asyncio.Lock()
         self._events: list[Event] = []
+        self.rejected_proposal: ProposalRejected | InferenceRejected | None = None
 
     def _emit(self, event: Event, *, notify: bool = True) -> None:
         self._run.record_event(event)
@@ -74,6 +77,7 @@ class Runtime:
 
     async def step(self, objective: str, *, grants: tuple[str, ...] | None = None) -> StepResult:
         async with self._lock:
+            self.rejected_proposal = None
             self._run.check_ready()
             async with asyncio.timeout(self._run.seconds_remaining):
                 return await self._step(objective, grants)
@@ -119,9 +123,10 @@ class Runtime:
         self._run.start(
             operation_id, request, reservation, guards=tuple(g.id for g in self._guards)
         )
-        stage = "inference"
+        stage = "notification"
         try:
             self._emit(Event(operation_id, "started", ""))
+            stage = "inference"
             try:
                 response = await self._inference.generate(request)
             except (InferenceFailure, InferenceCancelled) as error:
@@ -133,8 +138,9 @@ class Runtime:
             self._run.record_usage(operation_id, response.usage)
             call = response.call
             self._run.proposed(operation_id, call)
-            stage = "validation"
+            stage = "notification"
             self._emit(Event(operation_id, "inference_returned", ""))
+            stage = "validation"
             tool = self._tools.prepare(call, effective)
             stage = "guard"
             for guard in self._guards:
@@ -170,6 +176,10 @@ class Runtime:
             self._run.failed(operation_id, f"{stage}: {type(error).__name__}")
             outcome = "effect_unknown" if stage == "tool" else "failed"
             self._emit(Event(operation_id, outcome, stage), notify=False)
+            if (stage == "inference" and isinstance(error, InferenceRejected)) or (
+                stage == "validation" and isinstance(error, ProposalRejected)
+            ):
+                self.rejected_proposal = error
             raise
 
     async def recover(self) -> StepResult | None:

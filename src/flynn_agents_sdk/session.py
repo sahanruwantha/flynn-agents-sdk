@@ -13,7 +13,9 @@ from flynn_agents_sdk.contracts import (
     Evaluator,
     Event,
     InferenceAdapter,
+    InferenceRejected,
     InferenceRequest,
+    ProposalRejected,
     RunStore,
     State,
     StepResult,
@@ -113,6 +115,10 @@ class Session:
         policy: Callable[[SessionView], SessionStep | SessionStop],
         prepare_request: Callable[[InferenceRequest], InferenceRequest] | None = None,
         on_step: Callable[[StepResult], None] | None = None,
+        on_rejection: Callable[
+            [ProposalRejected | InferenceRejected, SessionView], SessionStep | SessionStop
+        ]
+        | None = None,
         guards: tuple[DispatchGuard, ...] = (),
         on_event: Callable[[Event], None] | None = None,
     ) -> None:
@@ -129,6 +135,7 @@ class Session:
         )
         self._policy = policy
         self._on_step = on_step
+        self._on_rejection = on_rejection
         self._lock = asyncio.Lock()
 
     def _check_ready(self) -> None:
@@ -146,18 +153,24 @@ class Session:
             baseline = self._run.completed_operations()
             count = 0
             last: StepResult | None = None
+            correction: SessionStep | SessionStop | None = None
             try:
                 self._check_ready()
                 async with asyncio.timeout(self._run.seconds_remaining):
                     while True:
-                        decision = self._policy(
-                            SessionView(
-                                self._run.read(),
-                                self._run.latest_observation(),
-                                last,
-                                count,
+                        decision = (
+                            correction
+                            if correction is not None
+                            else self._policy(
+                                SessionView(
+                                    self._run.read(),
+                                    self._run.latest_observation(),
+                                    last,
+                                    count,
+                                )
                             )
                         )
+                        correction = None
                         self._check_ready()
                         if isinstance(decision, SessionStop):
                             termination = SessionTermination("stopped", decision.reason, count)
@@ -167,7 +180,28 @@ class Session:
                             raise ContractError(
                                 "Session policy must return SessionStep or SessionStop"
                             )
-                        last = await self._runtime.step(decision.objective, grants=decision.grants)
+                        try:
+                            last = await self._runtime.step(
+                                decision.objective, grants=decision.grants
+                            )
+                        except (ProposalRejected, InferenceRejected) as exc:
+                            if (
+                                self._on_rejection is None
+                                or self._runtime.rejected_proposal is not exc
+                            ):
+                                raise
+                            self._check_ready()
+                            correction = self._on_rejection(
+                                exc,
+                                SessionView(
+                                    self._run.read(), self._run.latest_observation(), last, count
+                                ),
+                            )
+                            if not isinstance(correction, (SessionStep, SessionStop)):
+                                raise ContractError(
+                                    "Rejection policy must return SessionStep or SessionStop"
+                                ) from exc
+                            continue
                         count += 1
                         if self._on_step is not None:
                             self._on_step(last)

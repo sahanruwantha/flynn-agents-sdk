@@ -15,6 +15,7 @@ from flynn_agents_sdk.contracts import (
     BudgetExhausted,
     InferenceCancelled,
     InferenceFailure,
+    InferenceRejected,
     InferenceRequest,
     InferenceResult,
     InferenceUsage,
@@ -30,7 +31,7 @@ class ProviderError(InferenceFailure):
     """Provider failure with a safe message that excludes credentials and response bodies."""
 
 
-class ProviderResponseRejected(ProviderError):
+class ProviderResponseRejected(ProviderError, InferenceRejected):
     """A received response violated the tool-call contract; no call was returned.
 
     Applications choose whether to request a correction. Transport, HTTP, timeout,

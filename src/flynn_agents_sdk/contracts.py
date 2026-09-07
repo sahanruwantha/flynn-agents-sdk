@@ -128,6 +128,10 @@ class InferenceFailure(ContractError):
         self.usage = usage
 
 
+class InferenceRejected(InferenceFailure):
+    """A received response violated the proposal contract before tool dispatch."""
+
+
 class InferenceCancelled(asyncio.CancelledError):
     """Preserve cooperative cancellation while transporting available usage."""
 
