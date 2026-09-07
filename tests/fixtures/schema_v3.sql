@@ -7,7 +7,7 @@ CREATE TABLE evaluations (operation_id TEXT PRIMARY KEY REFERENCES operations(id
 CREATE TABLE inference_usage (operation_id TEXT PRIMARY KEY NOT NULL REFERENCES operations(id), payload TEXT NOT NULL);
 INSERT INTO "inference_usage" VALUES('reported','{"finish_reason":null,"input_tokens":17,"kind":"model","model":"model","output_tokens":5,"provider":"fixture","request_started":true,"response_id":null,"status":"known"}');
 CREATE TABLE operations (sequence INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, stage TEXT NOT NULL CHECK(stage IN ('inference','proposed','dispatched','returned','completed','failed')), request TEXT NOT NULL, call TEXT, observation INTEGER NOT NULL DEFAULT 0, output TEXT, error TEXT);
-INSERT INTO "operations" VALUES(1,'reported','failed','{"allowed_tools":["read"],"base":{"revision":0,"value":"base"},"images":[],"max_output_tokens":null,"objective":"read","observation":null,"tools":[]}',NULL,0,NULL,'provider response rejected');
+INSERT INTO "operations" VALUES(1,'reported','failed','{"allowed_tools":["read"],"base":{"revision":0,"value":"base"},"images":[],"objective":"read","observation":null,"tools":[]}',NULL,0,NULL,'provider response rejected');
 CREATE TABLE reservations (sequence INTEGER PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id), kind TEXT NOT NULL CHECK(kind IN ('inference','tool','external')), UNIQUE(operation_id,kind));
 INSERT INTO "reservations" VALUES(1,'reported','inference');
 CREATE TABLE run (id TEXT PRIMARY KEY, initial_state TEXT NOT NULL, initial_observation TEXT, limits TEXT NOT NULL, deadline REAL, last_clock REAL NOT NULL, outcome TEXT);

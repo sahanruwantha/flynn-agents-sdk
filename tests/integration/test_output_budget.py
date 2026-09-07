@@ -244,6 +244,7 @@ def test_schema_three_golden_keeps_known_usage_but_cannot_execute(tmp_path):
     records = SQLiteRun.inspect(path)
     assert summarize_usage(records)["known_output_tokens"] == 5
     assert records["output_reservations"] == []
+    assert "max_output_tokens" not in json.loads(records["operations"][0]["request"])
     with pytest.raises(ContractError, match="schema-4"):
         SQLiteRun.open(path)
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
