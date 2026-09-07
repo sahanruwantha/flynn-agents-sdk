@@ -1,6 +1,9 @@
 # Coordinated roadmap
 
-Status: planned, 2026-09-06. Milestones are dependency gates, not promised dates.
+Status: SDK runtime and ARC toy integration implemented; a partial phase-2 journal is
+implemented. Hosted DeepSeek vision is implemented for development smoke tests; local inference and
+official ARC integration remain planned.
+Milestones are dependency gates, not promised dates.
 
 | Phase | SDK deliverable | ARC consumer deliverable | Exit evidence |
 |---|---|---|---|
@@ -18,9 +21,23 @@ A cross-repository change lands SDK capability first, then the ARC pin and consu
 
 ## First implementation task
 
-The distribution/import scaffold is in place. Add pure call/result/budget contracts, a scripted model
-adapter, and a kernel that performs one authorized tool call. Exercise it with a toy
-consumer. No new model dependency is necessary for this task.
+Implemented in the SDK: pure records and protocols, a scripted adapter, a sequential
+async step, trusted tool grants/validation, attempt budgets, scoped evaluation, and
+in-memory revision checks. `examples/scripted_task.py` is the runnable toy consumer.
+Fault tests cover malformed/unauthorized calls, exhausted budgets, forged success text,
+stale and mismatched evidence, and cancellation. Strict type checking accompanies the API.
+
+ARC now includes a runnable three-action toy episode, failed-prediction preservation,
+invalid-action and budget-stop cases. SQLite records can be reopened; a real subprocess
+crash fixture checks that an unresolved action cannot be repeated. External action limits
+and cooperative episode deadlines are implemented. Inference receives the latest explicitly
+recorded observation independently of accepted state.
+
+Phase 2 remains partial: accepted-state/commit recovery, durable budgets, full lifecycle
+records, and environment-specific reconciliation are not implemented. The consumer uses
+an editable sibling SDK dependency until these working-tree changes have a committed
+revision to pin. Next: commit and pin the integration, then local inference and an official
+environment baseline. Do not run generated model code before adding tested confinement.
 
 ## Deferred
 

@@ -10,3 +10,12 @@ artifacts/runs/
 *.egg-info/
 build/
 dist/
+
+.mypy_cache/
+.env.*
+!.env.example
+.coverage
+htmlcov/
+# Local restoration evidence is preserved in the separate recovery backup.
+RECOVERY.md
+recovery-source-sha256.json

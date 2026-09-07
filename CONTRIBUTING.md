@@ -8,20 +8,21 @@ Use Python 3.11+ in a virtual environment. Package metadata and tool settings li
 ```bash
 uv sync --extra dev
 uv run pytest
-uv run ruff check src tests
-uv run ruff format --check src tests
+uv run mypy
+uv run ruff check src tests examples
+uv run ruff format --check src tests examples
 uv build
 ```
 
 Before a release, install the built wheel into a fresh environment and run the tests
 against that installation outside the source checkout. Do not use PYTHONPATH or sys.path
 patches to hide missing installed files. Test the minimum supported Python and a current
-supported release in CI when that workflow is added. No CI matrix is implemented yet.
+supported release in the CI matrix (Python 3.11–3.14).
 
 ## Python conventions
 
 - Use PEP 8 naming, module-level imports, and clear docstrings on public APIs. Annotate
-  public functions and boundary records. Add a type checker with the first real API;
+  public functions and boundary records. Strict mypy checking covers the SDK and example;
   annotations alone do not validate untrusted inputs at runtime.
 - Prefer immutable dataclasses for pure values, enums for closed vocabularies, and
   Protocol interfaces for injected dependencies. Add validation libraries only when
@@ -48,3 +49,21 @@ Keep current implementation and proposed design visibly separate. Add a module o
 working behavior. Update the README and relevant contracts when behavior changes. Follow
 [the structure proposal](docs/PROJECT_STRUCTURE.md) and introduce architecture tests with
 new package boundaries. Do not add compatibility aliases for unreleased scaffold names.
+
+Before a substantive change, classify its owner using
+[SDK and harness ownership](docs/OWNERSHIP.md). Include the failure, ownership rationale,
+repository/interface split, and validation criterion in the issue or PR. The PR template
+provides these fields. A generic execution mechanism belongs in the SDK; ARC learning
+and decision policy belong in the harness.
+
+
+## Pull requests
+
+Fork the repository, create a focused branch, and open a pull request against `main`.
+Include a reproduction or example, relevant tests, and an entry under `Unreleased` in
+[CHANGELOG.md](CHANGELOG.md) for user-visible changes. Follow the
+[code of conduct](CODE_OF_CONDUCT.md); use [SECURITY.md](SECURITY.md) for vulnerabilities.
+Contributions are accepted under the project's Apache-2.0 license; no CLA is required.
+Maintainers review public API changes and release compatibility before merging.
+
+See [the release guide](docs/RELEASING.md) for version changes and publication.

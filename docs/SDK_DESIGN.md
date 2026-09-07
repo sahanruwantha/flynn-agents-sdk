@@ -1,6 +1,32 @@
 # SDK interface design
 
-Status: proposed contract sketch. These names are not a released API.
+Status: experimental first slice plus proposed broader contracts; not a stable API.
+
+## Implemented slice
+
+`Runtime.step(objective)` performs one sequential async operation. `InferenceAdapter`
+returns a `ToolCall`; a `ToolBroker` checks explicit grants, registration, and an
+application-supplied argument validator before execution. Payloads are immutable strings;
+the application defines their format. There is no generic JSON Schema implementation.
+`Evaluator` returns an `Evaluation` binding the complete frozen candidate, including
+base state, tool call, and output. `InMemoryStore.commit` checks that binding, a satisfied
+verdict, and the unchanged base before publishing the next revision without await points.
+
+`Budget` bounds inference/tool attempts. Reservations consume one unit permanently,
+including on failed or cancelled dispatch. External action attempts can have a separate limit. An optional monotonic wall-time
+budget cancels cooperative async steps. Token settlement and monetary accounting remain deferred. `Runtime.events` is a process-local diagnostic
+snapshot, not durable evidence. `StepResult` retains the candidate and evaluation.
+Failures propagate after recording a diagnostic; tool exceptions and cancellation during
+dispatch mark the effect unknown and never trigger an automatic retry. The optional `Journal` independently records intent/result/evaluation and supplies the
+latest explicit observation to inference. `SQLiteJournal` blocks unresolved actions after
+reopening, but does not recover accepted state or replay actions. Failed/unavailable evaluations return an uncommitted result.
+
+Interfaces are async for waiting and cancellation, but execution is sequential. A runtime
+serializes its steps; stores reject stale commits across runtimes sharing the same event
+loop. No thread/process concurrency guarantee is made. The SQLite journal uses schema version 1 and serializes exact evaluation inputs as JSON.
+It is not the complete portable record format below; canonical hashing and migrations
+remain design requirements.
+
 
 ## Minimum interfaces
 
@@ -58,3 +84,13 @@ ARC registers observations, game actions, model-checking tools, and completion r
 No game-specific record is added to SDK core for convenience. A second tiny non-ARC
 consumer must work before calling the API reusable. Prefer one tested extension point
 over speculative adapters for every model provider.
+
+## Direct provider implementation
+
+DeepSeekAdapter implements the existing one-call InferenceAdapter protocol using optional
+HTTPX transport. InferenceRequest now includes immutable tool specifications and explicit
+image inputs. Runtime can call a trusted prepare_request function to attach application
+context. Token usage and finish metadata are available through an explicit on_trace sink;
+they are not yet part of budget settlement or the SQLite journal. The ARC consumer saves
+these traces separately. Hosted inference is a development path; local inference remains
+pending. No provider session, hidden tools, or automatic retries are introduced.

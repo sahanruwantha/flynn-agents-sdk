@@ -1,7 +1,18 @@
 # Runtime architecture
 
-Status: proposed implementation design, 2026-09-06. Accepted product constraints are
-recorded in D-001 and D-002. No component below is implemented by this documentation change.
+Status: mixed implementation and target design. The first slice implements async,
+sequential execution, scripted inference, trusted tool validation, operation budgets,
+scoped evaluation binding, in-memory revision checks, SQLite action/result/evaluation
+records, external action limits, and cooperative deadlines. Full durable event replay,
+accepted-state recovery, retrieval, local model transport, and confinement remain proposed.
+
+The current threat model treats inference proposals as untrusted data and the kernel,
+registered tools, evaluators, and storage implementation as trusted code in one event
+loop. The store is not thread-safe or a security boundary against in-process Python.
+Generated programs must not run until an isolation backend is implemented and tested.
+
+See [change ownership](OWNERSHIP.md) for the implementation decision checklist,
+responsibility map, and classification of recent improvements.
 
 ## Boundary
 
@@ -12,7 +23,7 @@ Dependencies point from applications to the SDK, never back into application cod
 | SDK owns | Application owns |
 |---|---|
 | Inference request/response contract | Choice of model and task-specific prompts |
-| Tool schema validation and scoped dispatch | Domain tools and legal action meanings |
+| Validator invocation and scoped dispatch | Domain tools and legal action meanings |
 | Durable events and output identity | Observations, hypotheses, and goal semantics |
 | Evaluation transport and commit preconditions | What a particular evaluator can establish |
 | Context limits, retrieval transport, budgets | Relevance policy and experiment selection |
@@ -49,6 +60,20 @@ truth or prevent forgery by a writer who can replace both content and hashes. Tr
 publication requires an actual process/filesystem boundary, not a private constructor.
 
 ## Durability and replay
+
+Implemented: the optional SQLite journal commits intent before dispatch, result before
+assessment, and the exact bound evaluation before state publication. Results survive
+rejected predictions and evaluator exceptions. Observation-producing tools explicitly opt
+in; internal tool results cannot replace the latest environment observation. Reopening
+an unfinished dispatch blocks new actions. An application-recorded terminal outcome closes
+the journal to dispatch. Journal schema 1 rejects unsupported versions. SQLite connections
+are owned by the composing application; the runtime does not close them.
+
+The journal does not persist accepted-state commits, remaining budgets, inference requests,
+or a complete event trace. It supports evidence inspection and conservative stopping, not
+resuming an environment or proving exactly-once effects. A single application writer must
+own the episode, including interpretation and evaluation. The following broader design
+remains a target:
 
 An append-only event stream records attempted operations and their outcomes. Selected
 state points to immutable records. A commit requires the expected base revision and

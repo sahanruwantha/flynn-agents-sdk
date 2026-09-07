@@ -1,72 +1,73 @@
 # Flynn Agents SDK
 
-A custom agent runtime for bounded reasoning, tool execution, and evidence-backed state.
-The runtime owns the loop. Models propose work; registered evaluators determine whether
-specific output contracts are satisfied.
+[![Checks](https://github.com/sahanruwantha/flynn-agents-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/sahanruwantha/flynn-agents-sdk/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: design and minimal Python scaffold.** The distribution is `flynn-agents-sdk`
-and the import package is `flynn_agents_sdk`, version 0.0.1. Only package metadata and a
-smoke test exist. The runtime, inference adapters, tools, persistence, and isolation
-components are planned; there is no functional agent API yet.
+A small Python runtime for agents whose tool permissions, budgets, observations, and
+state changes need to be explicit and inspectable.
 
-## What we are building
+**Experimental API · Python 3.11+ · Apache-2.0**
 
-A small Python SDK that lets applications control every model invocation, tool grant,
-context packet, budget, and state transition. Claude Agent SDK and OpenAI Agents SDK
-are excluded. Thin inference clients are allowed: they transport explicit requests,
-not agent loops, hidden tool execution, sessions, or automatic context management.
-The competition path must support local inference without hosted API access.
+Models propose tool calls. Your application validates arguments, supplies tools and an
+independent evaluator, and decides what success means. Flynn coordinates one bounded
+step at a time. It has no required third-party runtime dependencies; DeepSeek is optional.
 
-Our first consumer is [ARC Harness](https://github.com/sahanruwantha/arc-harness),
-which will learn unfamiliar game rules through observation and experiment. The SDK
-itself will know nothing about ARC grids, game IDs, scoring, or solution strategies.
+## Install
 
-```text
-arc-harness: observations → hypotheses → experiments → plans → game actions
-                                │
-                                ▼
-flynn-agents-sdk: context · inference · tools · budgets · events · evaluations
+Install the tagged release from GitHub:
+
+```bash
+python -m pip install "flynn-agents-sdk @ git+https://github.com/sahanruwantha/flynn-agents-sdk.git@v0.1.0"
 ```
 
-## Principles
+For DeepSeek, use `flynn-agents-sdk[deepseek]` in the same requirement. Wheels and source
+archives are available in [GitHub Releases](https://github.com/sahanruwantha/flynn-agents-sdk/releases).
+The project is not yet published to PyPI; `pip install flynn-agents-sdk` is not the
+installation path documented for this release.
 
-- Observations and interpretations have separate identities and types.
-- Model output cannot certify its own correctness.
-- A passed check establishes only its declared scope, never universal truth.
-- Uncertainty permits bounded experiments; invalid authority does not permit a commit.
-- Context is compiled for the active decision, with explicit retrieval for missing evidence.
-- Recorded evidence survives a session; stale conclusions do not silently survive revisions.
-- The runtime records failures and ambiguous external effects instead of retrying blindly.
+## Try it without an API key
 
-Flynn is an independent SDK. Its design keeps domain behavior in consumer applications
-and makes execution policy explicit and inspectable.
+```bash
+git clone https://github.com/sahanruwantha/flynn-agents-sdk.git
+cd flynn-agents-sdk
+uv sync --locked --extra dev
+uv run python examples/scripted_task.py
+```
+
+The [complete example](examples/scripted_task.py) uses scripted inference to propose
+incrementing `4`, executes the registered tool, independently checks `5`, and commits
+revision 1. Replace `ScriptedAdapter` with an implementation of `InferenceAdapter` to
+connect a model. Applications supply the loop around `await runtime.step(objective)`.
+
+## Included
+
+- **Enforced tool grants:** per-step overrides can narrow permissions; the broker
+  enforces the same permitted tools shown to inference.
+- **Bounded execution:** inference, tool, external-action, and cooperative time limits.
+- **Evaluated state:** immutable records and revision-checked in-memory commits.
+- **SQLite evidence:** durable intent, returned results, and evaluations; unresolved
+  dispatches block further execution instead of triggering automatic retries.
+- **Context selection:** whole items chosen within a character budget, with explicit
+  evidence IDs and omissions.
+- **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
+  traces, and typed response errors. No hidden agent loop or automatic retries.
+
+Flynn runs trusted application code in the same process. It is not a sandbox. Deadlines
+cannot preempt blocking Python. Journals do not automatically restore accepted state or
+budgets, reconcile external effects, or certify task completion. See the
+[runtime guide](docs/guides/runtime.md) for these boundaries.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md): boundaries and control loop.
-- [SDK design](docs/SDK_DESIGN.md): proposed interfaces and failure semantics.
-- [Roadmap](docs/ROADMAP.md): coordinated implementation and exit criteria.
-- [Research plan](docs/RESEARCH_PLAN.md) and [evaluation protocol](docs/PROTOCOL.md).
-- [Claim ledger](docs/CLAIMS.md): what is established and what remains a hypothesis.
-- [Decisions](docs/DECISIONS.md): scope change and implementation constraints.
-- [Project structure](docs/PROJECT_STRUCTURE.md): current tree, proposed modules, and dependency rules.
-- [Contributing](CONTRIBUTING.md): Python conventions and verification workflow.
+- [Documentation index](docs/README.md) — current guides and clearly marked design work.
+- [DeepSeek integration](docs/guides/deepseek.md).
+- [SDK versus harness ownership](docs/OWNERSHIP.md).
+- [Changelog](CHANGELOG.md) and [versioning and releases](docs/RELEASING.md).
+- [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and
+  [community expectations](CODE_OF_CONDUCT.md).
 
-## Working on the current scaffold
+Domain rules, spatial memory, experiment choice, and scoring belong in applications.
+Flynn's ARC consumer demonstrated a completed level in a bounded development run;
+that is consumer evidence, not a general SDK task-success guarantee.
 
-Python 3.11+ and `uv` are the development baseline. These commands test only
-what exists today; they do not run an agent:
-
-```bash
-uv sync --extra dev
-uv run pytest
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv build
-```
-
-There is no published install command or implemented `flynn` CLI yet. Future API
-examples in design documents are specifications, not working usage examples.
-
-Licensed under [Apache-2.0](LICENSE). Model weights and inference backends retain their
-own terms. The repositories remain private until a separate release decision.
+Licensed under [Apache-2.0](LICENSE). Provider services and model weights have their own terms.
