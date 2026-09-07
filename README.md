@@ -51,6 +51,10 @@ connect a model. Applications supply the loop around `await runtime.step(objecti
   dispatches block further execution instead of triggering automatic retries.
 - **Context selection:** whole items chosen within a character budget, with explicit
   evidence IDs and omissions; required items must fit.
+- **Provider-neutral accounting:** `InferenceResult` carries a proposal and usage; schema 3
+  records known, unknown and not-applicable usage, including rejected responses.
+  Missing reports remain unreported. `SQLiteRun.inspect` reads schema 2 for audit only;
+  execution requires a new schema-3 run.
 - **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
   traces, and typed response errors. No hidden agent loop or automatic retries.
 
@@ -67,7 +71,8 @@ After every pushed SDK change, run the harness's update command:
 bash ../arc-harness/scripts/sync_sdk.sh
 ```
 
-It fetches `main` over SSH, records the exact commit in `uv.lock`, installs the package
+It resolves the SDK revision selected in ARC's `pyproject.toml` over SSH, records the
+exact commit in `uv.lock`, installs the package
 into the harness `.venv`, verifies Git provenance, and runs the offline harness tests.
 Normal runs use `uv sync --locked --extra dev` for that exact tested commit. The harness
 does not import an editable sibling checkout. Unpushed code is not available over SSH.

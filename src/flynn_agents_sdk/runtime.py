@@ -10,7 +10,10 @@ from flynn_agents_sdk.contracts import (
     Evaluator,
     Event,
     InferenceAdapter,
+    InferenceCancelled,
+    InferenceFailure,
     InferenceRequest,
+    InferenceResult,
     RunStore,
     StepResult,
     UnresolvedEffect,
@@ -82,7 +85,16 @@ class Runtime:
         self._events.append(Event(operation_id, "started", ""))
         stage = "inference"
         try:
-            call = await self._inference.generate(request)
+            try:
+                response = await self._inference.generate(request)
+            except (InferenceFailure, InferenceCancelled) as error:
+                if error.usage is not None:
+                    self._run.record_usage(operation_id, error.usage)
+                raise
+            if not isinstance(response, InferenceResult):
+                raise ContractError("Inference must return an InferenceResult")
+            self._run.record_usage(operation_id, response.usage)
+            call = response.call
             self._run.proposed(operation_id, call)
             stage = "validation"
             tool = self._tools.prepare(call, effective)

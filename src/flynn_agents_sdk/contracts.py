@@ -4,6 +4,7 @@ Payloads are strings so records cannot retain caller-owned mutable objects.
 Applications define payload formats and validate tool arguments.
 """
 
+import asyncio
 import math
 from dataclasses import dataclass
 from enum import StrEnum
@@ -38,6 +39,100 @@ class State:
 class ToolCall:
     name: str
     arguments: str
+
+
+class UsageStatus(StrEnum):
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+    NOT_APPLICABLE = "not_applicable"
+
+
+@dataclass(frozen=True)
+class InferenceUsage:
+    """Neutral accounting, excluding prices and raw provider payloads.
+
+    Unknown usage may retain either known token count. request_started means dispatch
+    was attempted, not that the remote provider received or billed the request.
+    """
+
+    kind: str
+    status: UsageStatus
+    request_started: bool = False
+    provider: str | None = None
+    model: str | None = None
+    response_id: str | None = None
+    finish_reason: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("model", "scripted") or not isinstance(self.status, UsageStatus):
+            raise ContractError("Usage requires model/scripted kind and a UsageStatus")
+        if type(self.request_started) is not bool:
+            raise ContractError("request_started must be a boolean")
+        for value in (self.provider, self.model, self.response_id, self.finish_reason):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ContractError("Usage identity fields must be nonempty strings or None")
+        for count in (self.input_tokens, self.output_tokens):
+            if count is not None and (type(count) is not int or not 0 <= count < 2**63):
+                raise ContractError("Token counts must be nonnegative SQLite integers or None")
+        if self.kind == "scripted":
+            if (
+                self.status != UsageStatus.NOT_APPLICABLE
+                or self.request_started
+                or any(
+                    value is not None
+                    for value in (
+                        self.provider,
+                        self.model,
+                        self.response_id,
+                        self.finish_reason,
+                        self.input_tokens,
+                        self.output_tokens,
+                    )
+                )
+            ):
+                raise ContractError("Scripted usage must be not_applicable with no model metadata")
+        else:
+            if self.provider is None or self.model is None:
+                raise ContractError("Model usage requires provider and model identity")
+            complete = self.input_tokens is not None and self.output_tokens is not None
+            if self.status == UsageStatus.NOT_APPLICABLE or (
+                (self.status == UsageStatus.KNOWN) != complete
+            ):
+                raise ContractError("Model usage is known exactly when both token counts are known")
+            if not self.request_started and (self.input_tokens, self.output_tokens) != (0, 0):
+                raise ContractError("An undispatched model request must report known zero tokens")
+
+    @classmethod
+    def scripted(cls) -> "InferenceUsage":
+        return cls("scripted", UsageStatus.NOT_APPLICABLE)
+
+
+@dataclass(frozen=True)
+class InferenceResult:
+    call: ToolCall
+    usage: InferenceUsage
+
+    @classmethod
+    def scripted(cls, call: ToolCall) -> "InferenceResult":
+        return cls(call, InferenceUsage.scripted())
+
+
+class InferenceFailure(ContractError):
+    """A failed invocation may still carry accounting for a consumed response."""
+
+    def __init__(self, message: str, *, usage: InferenceUsage | None = None) -> None:
+        super().__init__(message)
+        self.usage = usage
+
+
+class InferenceCancelled(asyncio.CancelledError):
+    """Preserve cooperative cancellation while transporting available usage."""
+
+    def __init__(self, usage: InferenceUsage) -> None:
+        super().__init__("Inference cancelled")
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -101,7 +196,7 @@ class Event:
 
 
 class InferenceAdapter(Protocol):
-    async def generate(self, request: InferenceRequest) -> ToolCall:
+    async def generate(self, request: InferenceRequest) -> InferenceResult:
         """Return one proposal without executing tools or retrying internally."""
         ...
 
@@ -164,6 +259,7 @@ class RunStore(Protocol):
     def seconds_remaining(self) -> float | None: ...
     def check_ready(self) -> None: ...
     def start(self, operation_id: str, request: InferenceRequest) -> None: ...
+    def record_usage(self, operation_id: str, usage: InferenceUsage) -> None: ...
     def proposed(self, operation_id: str, call: ToolCall) -> None: ...
     def dispatch(self, operation_id: str, *, observation: bool, external_action: bool) -> None: ...
     def returned(self, operation_id: str, output: str) -> Candidate: ...

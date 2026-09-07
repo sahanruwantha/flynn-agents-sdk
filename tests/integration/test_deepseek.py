@@ -54,7 +54,9 @@ def test_explicit_vision_tool_payload_and_usage():
             return await adapter.generate(request())
 
     call = asyncio.run(scenario())
-    assert call.name == "move"
+    assert call.call.name == "move"
+    assert call.usage.input_tokens == 100
+    assert call.usage.output_tokens == 20
     assert len(sent) == 1
     assert sent[0]["messages"][1]["content"][1]["type"] == "image_url"
     assert sent[0]["tools"][0]["function"]["name"] == "move"

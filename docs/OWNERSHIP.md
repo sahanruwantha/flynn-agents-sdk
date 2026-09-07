@@ -89,3 +89,32 @@ Implemented boundary example: Runtime.step's optional grants override and enforc
 of further prepare_request narrowing belong to the SDK. Decisions about when to narrow
 tools remain harness policy. The harness currently uses informative reassessment rather
 than mandatory deliberation gating.
+
+## Neutral inference accounting (schema 3)
+
+- **Failure/evidence:** ARC calculated usage from DeepSeek callbacks; VFX's Flynn
+  path had no usage report. SQLite inference reservations could not distinguish
+  scripted canonical replay from a model request, and rejected responses lost usage.
+- **Owner:** SDK records accounting; harnesses select models, prices, budgets and
+  domain completion. This change adds no token limit or dollar-cost claim.
+- **Contract:** adapters return `InferenceResult(call, usage)`. `InferenceUsage`
+  separates model/scripted kind from known/unknown/not-applicable usage, includes
+  provider/model and response/finish identity, and preserves partial token counts.
+  `InferenceFailure` and `InferenceCancelled` carry reports for failed invocations.
+  A missing report remains unreported, including process death and historical runs.
+  Raw response retention stays in the provider's opt-in diagnostics.
+- **Durability:** Runtime appends accounting before validating the proposed tool.
+  Schema 3 adds immutable `inference_usage` rows keyed by operation id without
+  changing existing tables. `SQLiteRun.inspect` reads schema 2 and 3 without writes;
+  `SQLiteRun.open` accepts only schema 3. Historical inspection is not resume authority.
+- **Consumers:** ARC episode summaries use journal usage, retaining provider traces
+  for diagnostics/replay. Direct experiment callers unwrap `.call`. VFX publishes
+  an attempt-scoped usage projection and keeps its receipt writers authoritative.
+- **Validation:** generic fixtures cover rejection, timeout, cancellation, partial
+  usage, scripted calls, unreported operations and immutable history. A SQL golden
+  generated from the released schema-2 implementation proves historical evidence
+  remains readable byte-for-byte without authorizing execution. Both consumers must
+  pass their offline gates against the pushed SDK before handoff.
+- **Success criterion:** accounting survives failed proposals and reopened runs;
+  scripted operations never inflate unknown model usage. No ARC-score or VFX-quality
+  improvement is inferred from accounting alone.

@@ -5,6 +5,11 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Break the experimental inference API: return `InferenceResult` with neutral usage
+  and preserve accounting on typed failure/cancellation.
+- Add immutable per-operation usage records in schema 3, including rejected responses.
+  Schema-2 journals remain read-only audit evidence; execution requires schema 3.
+
 - Add opt-in exact rejected tool-argument capture to DeepSeek inference traces;
   malformed arguments remain rejected and are never repaired or dispatched.
 

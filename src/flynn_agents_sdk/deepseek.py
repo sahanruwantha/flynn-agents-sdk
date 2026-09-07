@@ -11,12 +11,20 @@ from typing import Any
 
 import httpx
 
-from flynn_agents_sdk.contracts import ContractError, InferenceRequest, ToolCall
+from flynn_agents_sdk.contracts import (
+    InferenceCancelled,
+    InferenceFailure,
+    InferenceRequest,
+    InferenceResult,
+    InferenceUsage,
+    ToolCall,
+    UsageStatus,
+)
 
 VISION_MODEL = "deepseek-v4-flash-vision-exp"
 
 
-class ProviderError(ContractError):
+class ProviderError(InferenceFailure):
     """Provider failure with a safe message that excludes credentials and response bodies."""
 
 
@@ -113,6 +121,15 @@ class DeepSeekAdapter:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    def _trace(self, trace: InferenceTrace, usage: InferenceUsage) -> None:
+        assert self._on_trace is not None
+        try:
+            self._on_trace(trace)
+        except Exception as error:
+            # A diagnostic sink is an application boundary: preserve consumed usage
+            # while failing explicitly, retaining the sink exception as the cause.
+            raise InferenceFailure("Inference diagnostic callback failed", usage=usage) from error
+
     def _payload(self, request: InferenceRequest) -> dict[str, Any]:
         if request.images and self.model != VISION_MODEL:
             raise ProviderError("Image input requires the DeepSeek vision model")
@@ -191,8 +208,19 @@ class DeepSeekAdapter:
             "thinking": {"type": "disabled"},
         }
 
-    async def generate(self, request: InferenceRequest) -> ToolCall:
-        payload = self._payload(request)
+    async def generate(self, request: InferenceRequest) -> InferenceResult:
+        reports: list[InferenceUsage] = []
+        try:
+            call = await self._generate(request, reports)
+        except ProviderError as error:
+            error.usage = reports[-1]
+            raise
+        except asyncio.CancelledError as error:
+            raise InferenceCancelled(reports[-1]) from error
+        return InferenceResult(call, reports[-1])
+
+    async def _generate(self, request: InferenceRequest, reports: list[InferenceUsage]) -> ToolCall:
+        request_started = False
         started = time.monotonic()
         data: dict[str, Any] = {}
         finish: str | None = None
@@ -204,7 +232,9 @@ class DeepSeekAdapter:
         rejected_calls: tuple[ToolCall, ...] = ()
         outcome = "provider_error"
         try:
+            payload = self._payload(request)
             async with asyncio.timeout(self.timeout_seconds):
+                request_started = True
                 response = await self._client.post("/chat/completions", json=payload)
             if response.status_code != 200:
                 raise ProviderError(
@@ -302,13 +332,39 @@ class DeepSeekAdapter:
             outcome = "cancelled"
             raise
         finally:
+            raw_usage = data.get("usage")
+            raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+            prompt = raw_usage.get("prompt_tokens")
+            completion = raw_usage.get("completion_tokens")
+            prompt = prompt if type(prompt) is int and 0 <= prompt < 2**63 else None
+            completion = completion if type(completion) is int and 0 <= completion < 2**63 else None
+            if not request_started:
+                prompt, completion = 0, 0
+            response_id = data.get("id")
+            reports.append(
+                InferenceUsage(
+                    kind="model",
+                    status=UsageStatus.KNOWN
+                    if prompt is not None and completion is not None
+                    else UsageStatus.UNKNOWN,
+                    request_started=request_started,
+                    provider="deepseek",
+                    model=self.model,
+                    response_id=response_id
+                    if isinstance(response_id, str) and response_id.strip()
+                    else None,
+                    finish_reason=finish if isinstance(finish, str) and finish.strip() else None,
+                    input_tokens=prompt,
+                    output_tokens=completion,
+                )
+            )
             if self._on_trace is not None:
                 usage = data.get("usage")
                 usage = usage if isinstance(usage, dict) else {}
                 prompt = usage.get("prompt_tokens")
                 completion = usage.get("completion_tokens")
                 response_id = data.get("id")
-                self._on_trace(
+                self._trace(
                     InferenceTrace(
                         self.model,
                         response_id if isinstance(response_id, str) else None,
@@ -323,5 +379,6 @@ class DeepSeekAdapter:
                         tool_call_count,
                         rejected_arguments,
                         rejected_calls,
-                    )
+                    ),
+                    reports[-1],
                 )

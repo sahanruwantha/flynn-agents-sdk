@@ -7,6 +7,7 @@ from flynn_agents_sdk import (
     BudgetExhausted,
     ContractError,
     Evaluation,
+    InferenceResult,
     RunLimits,
     Runtime,
     ScriptedAdapter,
@@ -178,7 +179,7 @@ def test_finishing_during_inference_still_blocks_dispatch(run):
     class End:
         async def generate(self, request):
             run.finish("cancelled")
-            return ToolCall("increment", "4")
+            return InferenceResult.scripted(ToolCall("increment", "4"))
 
     with pytest.raises(ContractError, match="already ended"):
         asyncio.run(make(run, adapter=End()).step("test"))
@@ -208,7 +209,7 @@ def test_prepared_domain_schema_reaches_inference(run):
     class Inspect:
         async def generate(self, request):
             assert request.tools == (schema,)
-            return ToolCall("increment", "4")
+            return InferenceResult.scripted(ToolCall("increment", "4"))
 
     runtime = make(
         run, adapter=Inspect(), prepare=lambda request: replace(request, tools=(schema,))

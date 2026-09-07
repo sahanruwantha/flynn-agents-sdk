@@ -2,15 +2,24 @@
 
 from collections.abc import Iterable
 
-from flynn_agents_sdk.contracts import ContractError, InferenceRequest, ToolCall
+from flynn_agents_sdk.contracts import (
+    InferenceFailure,
+    InferenceRequest,
+    InferenceResult,
+    InferenceUsage,
+    ToolCall,
+)
 
 
 class ScriptedAdapter:
     def __init__(self, calls: Iterable[ToolCall]) -> None:
         self._calls = iter(calls)
 
-    async def generate(self, request: InferenceRequest) -> ToolCall:
+    async def generate(self, request: InferenceRequest) -> InferenceResult:
         try:
-            return next(self._calls)
+            return InferenceResult.scripted(next(self._calls))
         except StopIteration as error:
-            raise ContractError("Script exhausted; supply another scripted proposal") from error
+            raise InferenceFailure(
+                "Script exhausted; supply another scripted proposal",
+                usage=InferenceUsage.scripted(),
+            ) from error

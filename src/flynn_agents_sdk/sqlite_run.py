@@ -17,12 +17,14 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from flynn_agents_sdk.accounting import summarize_usage
 from flynn_agents_sdk.contracts import (
     BudgetExhausted,
     Candidate,
     ContractError,
     Evaluation,
     InferenceRequest,
+    InferenceUsage,
     PendingOperation,
     RunLimits,
     State,
@@ -33,7 +35,7 @@ from flynn_agents_sdk.contracts import (
 )
 
 APPLICATION_ID = 0x464C594E
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _json(value: Any) -> str:
@@ -124,7 +126,11 @@ class SQLiteRun:
                     "base_revision INTEGER NOT NULL, value TEXT NOT NULL, "
                     "evaluation_digest TEXT NOT NULL)"
                 )
-                for table in ("reservations", "evaluations", "commits"):
+                run._db.execute(
+                    "CREATE TABLE inference_usage (operation_id TEXT PRIMARY KEY NOT NULL "
+                    "REFERENCES operations(id), payload TEXT NOT NULL)"
+                )
+                for table in ("reservations", "evaluations", "commits", "inference_usage"):
                     for verb in ("UPDATE", "DELETE"):
                         run._db.execute(
                             f"CREATE TRIGGER immutable_{table}_{verb} BEFORE {verb} ON {table} "
@@ -160,7 +166,7 @@ class SQLiteRun:
             if app != APPLICATION_ID or version != SCHEMA_VERSION:
                 raise ContractError(
                     f"Unsupported Flynn database application/schema {app}/{version}; "
-                    "archive old evidence and create a new schema-2 run"
+                    "archive old evidence and create a new schema-3 run"
                 )
             if run._db.execute("SELECT count(*) FROM run").fetchone()[0] != 1:
                 raise ContractError("Database must contain exactly one run")
@@ -325,6 +331,57 @@ class SQLiteRun:
             )
             self._reserve(operation_id, "inference")
 
+    def record_usage(self, operation_id: str, usage: InferenceUsage) -> None:
+        """Append accounting before proposal validation, including failed inference.
+
+        This write deliberately accepts expired time budgets: receiving an accounting
+        report never authorizes another request and must not erase consumed usage.
+        """
+        if not isinstance(usage, InferenceUsage):
+            raise ContractError("Inference accounting must be an InferenceUsage")
+        with self._transaction():
+            self._require_open()
+            self._operation(operation_id, "inference")
+            self._db.execute(
+                "INSERT INTO inference_usage VALUES (?,?)", (operation_id, _json(asdict(usage)))
+            )
+
+    def usage_summary(self) -> dict[str, int | bool]:
+        return summarize_usage(self.records())
+
+    @classmethod
+    def inspect(cls, path: str | Path) -> dict[str, list[dict[str, Any]]]:
+        """Read a coherent audit snapshot without ownership, migration or clock updates.
+
+        Schema 2 has no usage reports: its invocations remain unreported, never zero.
+        Historical readability does not authorize execution or recovery.
+        """
+        db = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        try:
+            db.execute("BEGIN")
+            app = db.execute("PRAGMA application_id").fetchone()[0]
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if app != APPLICATION_ID or version not in (2, SCHEMA_VERSION):
+                raise ContractError(f"Unsupported Flynn audit application/schema {app}/{version}")
+            tables: tuple[str, ...] = (
+                "run",
+                "operations",
+                "reservations",
+                "evaluations",
+                "commits",
+            )
+            if version == SCHEMA_VERSION:
+                tables += ("inference_usage",)
+            records = {
+                table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                for table in tables
+            }
+            records.setdefault("inference_usage", [])
+            return records
+        finally:
+            db.close()
+
     def proposed(self, operation_id: str, call: ToolCall) -> None:
         if (
             not isinstance(call, ToolCall)
@@ -419,5 +476,12 @@ class SQLiteRun:
         """A derived inspection export, never an import or second state authority."""
         return {
             table: [dict(row) for row in self._db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
-            for table in ("run", "operations", "reservations", "evaluations", "commits")
+            for table in (
+                "run",
+                "operations",
+                "reservations",
+                "evaluations",
+                "commits",
+                "inference_usage",
+            )
         }

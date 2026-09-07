@@ -1,0 +1,24 @@
+-- Generated from d896665 sqlite_run.py, not the current schema.
+PRAGMA application_id=1179408718;
+PRAGMA user_version=2;
+BEGIN TRANSACTION;
+CREATE TABLE commits (revision INTEGER PRIMARY KEY CHECK(revision>0), operation_id TEXT UNIQUE NOT NULL REFERENCES evaluations(operation_id), base_revision INTEGER NOT NULL, value TEXT NOT NULL, evaluation_digest TEXT NOT NULL);
+INSERT INTO "commits" VALUES(1,'accepted',0,'updated','e423bd6200a6f351a972df9f2ef48ecf7d3d64ded731ea1dc975bcd693c8ec9c');
+CREATE TABLE evaluations (operation_id TEXT PRIMARY KEY REFERENCES operations(id), payload TEXT NOT NULL, digest TEXT NOT NULL);
+INSERT INTO "evaluations" VALUES('accepted','{"candidate":{"base":{"revision":0,"value":"base"},"call":{"arguments":"{}","name":"read"},"id":"accepted","output":"observation"},"evaluator":"fixture/v1","reason":"checked","scope":"state","state_update":"updated","verdict":"satisfied"}','e423bd6200a6f351a972df9f2ef48ecf7d3d64ded731ea1dc975bcd693c8ec9c');
+CREATE TABLE operations (sequence INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, stage TEXT NOT NULL CHECK(stage IN ('inference','proposed','dispatched','returned','completed','failed')), request TEXT NOT NULL, call TEXT, observation INTEGER NOT NULL DEFAULT 0, output TEXT, error TEXT);
+INSERT INTO "operations" VALUES(1,'accepted','completed','{"allowed_tools":["read"],"base":{"revision":0,"value":"base"},"images":[],"objective":"inspect","observation":null,"tools":[]}','{"arguments":"{}","name":"read"}',1,'observation',NULL);
+INSERT INTO "operations" VALUES(2,'unreported','inference','{"allowed_tools":["read"],"base":{"revision":1,"value":"updated"},"images":[],"objective":"inspect","observation":null,"tools":[]}',NULL,0,NULL,NULL);
+CREATE TABLE reservations (sequence INTEGER PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id), kind TEXT NOT NULL CHECK(kind IN ('inference','tool','external')), UNIQUE(operation_id,kind));
+INSERT INTO "reservations" VALUES(1,'accepted','inference');
+INSERT INTO "reservations" VALUES(2,'accepted','tool');
+INSERT INTO "reservations" VALUES(3,'unreported','inference');
+CREATE TABLE run (id TEXT PRIMARY KEY, initial_state TEXT NOT NULL, initial_observation TEXT, limits TEXT NOT NULL, deadline REAL, last_clock REAL NOT NULL, outcome TEXT);
+INSERT INTO "run" VALUES('golden-v2','base',NULL,'{"external_actions":3,"inference_calls":3,"tool_calls":3,"wall_time_seconds":null}',NULL,1.788758635811416387e+09,NULL);
+CREATE TRIGGER immutable_reservations_UPDATE BEFORE UPDATE ON reservations BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+CREATE TRIGGER immutable_reservations_DELETE BEFORE DELETE ON reservations BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+CREATE TRIGGER immutable_evaluations_UPDATE BEFORE UPDATE ON evaluations BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+CREATE TRIGGER immutable_evaluations_DELETE BEFORE DELETE ON evaluations BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+CREATE TRIGGER immutable_commits_UPDATE BEFORE UPDATE ON commits BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+CREATE TRIGGER immutable_commits_DELETE BEFORE DELETE ON commits BEGIN SELECT RAISE(ABORT,'immutable history'); END;
+COMMIT;

@@ -2,6 +2,7 @@
 
 from importlib.metadata import version
 
+from flynn_agents_sdk.accounting import summarize_usage
 from flynn_agents_sdk.context import ContextCompiler, ContextItem, ContextPacket
 from flynn_agents_sdk.contracts import (
     BudgetExhausted,
@@ -12,7 +13,11 @@ from flynn_agents_sdk.contracts import (
     Event,
     ImageInput,
     InferenceAdapter,
+    InferenceCancelled,
+    InferenceFailure,
     InferenceRequest,
+    InferenceResult,
+    InferenceUsage,
     PendingOperation,
     ProposalRejected,
     RunLimits,
@@ -22,6 +27,7 @@ from flynn_agents_sdk.contracts import (
     ToolCall,
     ToolSpec,
     UnresolvedEffect,
+    UsageStatus,
     Verdict,
 )
 from flynn_agents_sdk.inference import ScriptedAdapter
@@ -41,6 +47,11 @@ __all__ = [
     "Evaluator",
     "Event",
     "ImageInput",
+    "InferenceCancelled",
+    "InferenceFailure",
+    "InferenceResult",
+    "InferenceUsage",
+    "UsageStatus",
     "InferenceAdapter",
     "InferenceRequest",
     "PendingOperation",
@@ -58,5 +69,6 @@ __all__ = [
     "ToolSpec",
     "UnresolvedEffect",
     "Verdict",
+    "summarize_usage",
     "__version__",
 ]
