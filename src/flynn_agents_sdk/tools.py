@@ -10,6 +10,7 @@ from flynn_agents_sdk.contracts import (
     ToolCall,
     ToolSpec,
 )
+from flynn_agents_sdk.results import ToolResult, parse_json
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,52 @@ class Tool:
     observation: bool = False
     description: str = ""
     parameters_json: str = '{"type":"object","properties":{},"additionalProperties":false}'
+
+    @classmethod
+    def structured(
+        cls,
+        name: str,
+        *,
+        description: str,
+        parameters_json: str,
+        validate: Callable[[dict[str, object]], None],
+        execute: Callable[[dict[str, object]], Awaitable[ToolResult]],
+        external_action: bool = False,
+    ) -> "Tool":
+        """Register a structured observation through the ordinary durable dispatch path.
+
+        The harness supplies a pure argument validator matching its advertised schema.
+        This factory does not invent permissions, catch handler failures, select context,
+        evaluate domain success, or propose a state commit.
+        """
+        schema = parse_json(parameters_json)
+        if not isinstance(schema, dict) or schema.get("type") != "object":
+            raise ContractError("Structured tools require an object parameter schema")
+
+        def arguments(raw: str) -> dict[str, object]:
+            value = parse_json(raw)
+            if not isinstance(value, dict):
+                raise ContractError("Structured tool arguments must be a JSON object")
+            return value
+
+        def check(raw: str) -> None:
+            validate(arguments(raw))
+
+        async def dispatch(raw: str) -> str:
+            result = await execute(arguments(raw))
+            if not isinstance(result, ToolResult):
+                raise ContractError("Structured tool handler must return ToolResult")
+            return result.to_json()
+
+        return cls(
+            name,
+            check,
+            dispatch,
+            external_action=external_action,
+            observation=True,
+            description=description,
+            parameters_json=parameters_json,
+        )
 
 
 class ToolBroker:

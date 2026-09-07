@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add native structured observation tools with immutable text/image results, JSON data,
+  explicit refusal status, strict serialization, and existing durable dispatch semantics.
+
 - Add optional durable output-token reservations in schema 4. Unknown output usage
   blocks further model requests; scripted operations reserve zero. DeepSeek receives
   the reserved ceiling. Schema 3 remains audit-readable, not executable.

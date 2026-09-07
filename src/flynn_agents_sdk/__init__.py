@@ -34,6 +34,7 @@ from flynn_agents_sdk.contracts import (
     Verdict,
 )
 from flynn_agents_sdk.inference import ScriptedAdapter
+from flynn_agents_sdk.results import ImageContent, TextContent, ToolResult
 from flynn_agents_sdk.runtime import Runtime
 from flynn_agents_sdk.sqlite_run import SQLiteRun
 from flynn_agents_sdk.tools import Tool, ToolBroker
@@ -69,6 +70,9 @@ __all__ = [
     "ScriptedAdapter",
     "State",
     "StepResult",
+    "ImageContent",
+    "TextContent",
+    "ToolResult",
     "Tool",
     "ToolBroker",
     "ToolCall",
