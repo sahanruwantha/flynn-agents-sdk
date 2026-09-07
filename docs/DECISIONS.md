@@ -40,6 +40,7 @@ generic utility dumping grounds, or automatic plugin discovery at this stage.
 ## D-006 — Licensing and distribution
 
 The SDK retains Apache-2.0. Dependencies and model weights retain their own licenses.
-The 0.1.0 release opens the repository and distributes packages through GitHub Releases.
+The repository is private by owner request. The 0.1.0 packages remain available to
+authorized users through GitHub Releases, and consumers install updates over SSH.
 PyPI publication is a separate publisher configuration step. The name and license do not
 establish trademark clearance or competition eligibility.

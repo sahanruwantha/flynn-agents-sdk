@@ -5,6 +5,11 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+### Changed
+
+- Repository made private by owner request; installation guidance uses authenticated SSH.
+- SDK changes require refreshing the ARC Harness Git pin, reinstalling, and testing.
+
 ## [0.1.0] - 2026-09-07
 
 First public runtime release. The API remains experimental.

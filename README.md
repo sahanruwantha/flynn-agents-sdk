@@ -12,12 +12,12 @@ Models propose tool calls. Your application validates arguments, supplies tools 
 independent evaluator, and decides what success means. Flynn coordinates one bounded
 step at a time. It has no required third-party runtime dependencies; DeepSeek is optional.
 
-## Install
+## Install (private repository)
 
-Install the tagged release from GitHub:
+An SSH key authorized for this repository is required. Install a tagged release:
 
 ```bash
-python -m pip install "flynn-agents-sdk @ git+https://github.com/sahanruwantha/flynn-agents-sdk.git@v0.1.0"
+python -m pip install "flynn-agents-sdk @ git+ssh://git@github.com/sahanruwantha/flynn-agents-sdk.git@v0.1.0"
 ```
 
 For DeepSeek, use `flynn-agents-sdk[deepseek]` in the same requirement. Wheels and source
@@ -28,7 +28,7 @@ installation path documented for this release.
 ## Try it without an API key
 
 ```bash
-git clone https://github.com/sahanruwantha/flynn-agents-sdk.git
+git clone git@github.com:sahanruwantha/flynn-agents-sdk.git
 cd flynn-agents-sdk
 uv sync --locked --extra dev
 uv run python examples/scripted_task.py
@@ -56,6 +56,19 @@ Flynn runs trusted application code in the same process. It is not a sandbox. De
 cannot preempt blocking Python. Journals do not automatically restore accepted state or
 budgets, reconcile external effects, or certify task completion. See the
 [runtime guide](docs/guides/runtime.md) for these boundaries.
+
+## Keep ARC Harness on the current SDK
+
+After every pushed SDK change, run the harness's update command:
+
+```bash
+bash ../arc-harness/scripts/sync_sdk.sh
+```
+
+It fetches `main` over SSH, records the exact commit in `uv.lock`, installs the package
+into the harness `.venv`, verifies Git provenance, and runs the offline harness tests.
+Normal runs use `uv sync --locked --extra dev` for that exact tested commit. The harness
+does not import an editable sibling checkout. Unpushed code is not available over SSH.
 
 ## Documentation
 

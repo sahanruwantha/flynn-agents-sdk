@@ -29,9 +29,20 @@ A failed release workflow must be investigated, not bypassed. Correct a broken r
 with a new version rather than replacing an existing tag or artifact. The workflow uses
 GitHub's scoped token, not a personal token or package-index credential.
 
+## Consumer update requirement
+
+The repository is private. After pushing an SDK change, run
+`bash ../arc-harness/scripts/sync_sdk.sh` and record the installed commit and test result.
+This requirement applies to unreleased changes too; the harness tracks `main` over SSH
+and locks its resolved commit. Do not use an editable local-path dependency.
+
+The script runs on demand as part of the SDK change workflow; it is not a background
+watcher. It never uploads an SSH key, publishes to PyPI, or invokes paid inference.
+
 ## PyPI
 
-GitHub releases are the configured distribution channel. PyPI publication is not enabled.
+Private SSH Git installs and private GitHub release assets are the distribution channels.
+PyPI publication is not enabled.
 A maintainer must first establish project ownership on PyPI, configure a trusted publisher
 bound to a reviewed workflow and protected environment, and add the publishing job.
 Do not add PyPI credentials to the repository or claim a PyPI release before it exists.
