@@ -301,3 +301,22 @@ def test_reservation_and_inference_capacity_publish_atomically(tmp_path):
         assert run.records()["output_reservations"] == []
         assert run.records()["operations"] == []
         assert run.output_budget().available == 7
+
+
+@pytest.mark.parametrize("value", ["missing", True, -1, 1.5, "7"])
+def test_invalid_durable_output_limit_never_becomes_uncapped(tmp_path, value):
+    path = tmp_path / "run.db"
+    with create(path):
+        pass
+    with sqlite3.connect(path) as db:
+        limits = json.loads(db.execute("SELECT limits FROM run").fetchone()[0])
+        if value == "missing":
+            limits.pop("output_tokens")
+        else:
+            limits["output_tokens"] = value
+        db.execute("UPDATE run SET limits=?", (json.dumps(limits),))
+    with SQLiteRun.open(path) as run:
+        with pytest.raises(ContractError, match="limits"):
+            asyncio.run(runtime(run, ScriptedAdapter([ToolCall("read", "{}")])).step("refuse"))
+        assert run.records()["operations"] == []
+        assert run.records()["reservations"] == []

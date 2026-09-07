@@ -334,7 +334,19 @@ class SQLiteRun:
 
     def output_budget(self) -> OutputBudget:
         row = dict(self._run())
-        if json.loads(row["limits"]).get("output_tokens") is None:
+        limits = json.loads(row["limits"])
+        if not isinstance(limits, dict) or "output_tokens" not in limits:
+            raise ContractError(
+                "Schema-4 run limits require output_tokens; "
+                "preserve this journal and create a new run"
+            )
+        try:
+            configured = RunLimits(**limits)
+        except (TypeError, ValueError) as error:
+            raise ContractError(
+                "Invalid durable run limits; preserve this journal and create a new run"
+            ) from error
+        if configured.output_tokens is None:
             return OutputBudget(None, None)
         # Admission needs compact accounting, never accumulated tool output or state.
         return output_budget(
