@@ -1,8 +1,10 @@
 # Runtime and integration guide
 
 This describes the unreleased, breaking 0.2 API. `Budget`, `InMemoryStore`, and
-`SQLiteJournal` are removed. Schema-1 databases are refused; preserve them as historical
-evidence and start fresh. No automatic conversion or compatibility adapter exists.
+`SQLiteJournal` are removed. New execution uses schema 3. `SQLiteRun.inspect(path)`
+reads schema 2 or 3 as historical evidence without acquiring a writer or changing bytes;
+`SQLiteRun.open(path)` accepts only schema 3. No automatic conversion or compatibility
+adapter exists.
 
 ## One durable run
 
@@ -31,8 +33,30 @@ Validators still enforce argument legality. Tools and evaluators are trusted app
 `remaining()` derives inference/tool/external capacities from durable reservations. Failed
 attempts consume reservations; reopening cannot reset them. Wall time includes downtime;
 a backward clock refuses further work. Deadlines cancel cooperative async work, not blocking
-code or external processes. Token/USD accounting and provider-neutral usage settlement are
-not implemented by this store.
+code or external processes. Token limits, pricing and dollar settlement are not implemented.
+
+## Inference results and accounting
+
+`InferenceAdapter.generate` returns `InferenceResult(call, usage)`, never a bare
+`ToolCall`. Use `InferenceResult.scripted(call)` for deterministic proposals.
+Model adapters supply `InferenceUsage` with provider/model identity, optional response
+identity and finish reason, whether request dispatch was attempted, and token counts.
+Usage is `known` when both counts are available, `unknown` when either is unavailable,
+and `not_applicable` for scripted work. A known partial count is retained. A model
+request refused before dispatch reports known zero tokens and `request_started=False`.
+
+A rejected response can still consume tokens: raise `InferenceFailure` with its usage.
+Cancellation may carry usage through `InferenceCancelled`, a `CancelledError` subclass.
+Runtime appends these reports before proposal validation or failure recording, including
+when the wall-time budget has expired. The immutable `inference_usage` table binds each
+report to its operation id. Raw provider payloads are not part of accounting.
+
+`run.usage_summary()` derives known token totals, attempted model requests, scripted
+invocations, unknown usage and separately unreported invocations. A process death or an
+adapter exception without metadata leaves usage unreported; it never becomes a free
+scripted call. Schema-2 inspection similarly leaves every invocation unreported.
+`summarize_usage(SQLiteRun.inspect(path))` produces the same audit projection after close.
+These records do not authorize resumption, establish a price or declare domain success.
 
 `pending()` distinguishes interrupted inference, proposal, dispatch and returned output.
 Explicit `await runtime.recover()` abandons undispatched attempts without refund or re-evaluates

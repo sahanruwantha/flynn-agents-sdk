@@ -224,17 +224,30 @@ def test_forged_or_stale_evaluation_does_not_publish(tmp_path):
         assert run.read().revision == 0
 
 
-def test_timeout_preserves_unknown_effect(tmp_path):
+def test_timeout_preserves_unknown_effect(tmp_path, monkeypatch):
     from flynn_agents_sdk import Runtime, ScriptedAdapter, Tool, ToolBroker
 
     class Check:
         async def evaluate(self, candidate):
             pytest.fail("Unreturned action evaluated")
 
+    # Exercise the runtime's real timeout after dispatch, rather than racing
+    # synchronous SQLite fsync against a 100ms pre-dispatch budget on a busy host.
+    original_timeout = asyncio.timeout
+    deadlines = []
+
+    def capture_timeout(delay):
+        deadline = original_timeout(delay)
+        deadlines.append(deadline)
+        return deadline
+
+    monkeypatch.setattr(asyncio, "timeout", capture_timeout)
+
     async def stalled(_):
+        deadlines[0].reschedule(asyncio.get_running_loop().time())
         await asyncio.Event().wait()
 
-    with create(tmp_path / "run.db", RunLimits(1, 1, 1, 0.1)) as run:
+    with create(tmp_path / "run.db", RunLimits(1, 1, 1, 60)) as run:
         runtime = Runtime(
             inference=ScriptedAdapter([ToolCall("act", "{}")]),
             tools=ToolBroker([Tool("act", lambda _: None, stalled)]),
