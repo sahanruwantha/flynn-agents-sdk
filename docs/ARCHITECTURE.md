@@ -2,13 +2,14 @@
 
 Status: the unreleased 0.2 kernel uses a single SQLite run for state, requests,
 reservations, effects and evaluations. See the [runtime guide](guides/runtime.md) for
-implemented behavior and limitations. External environment restoration, usage settlement,
-and confinement remain application responsibilities or future work.
+implemented behavior and limitations. External environment restoration and usage settlement
+remain application responsibilities. Generated Python has a separate opt-in
+[confined worker](guides/program-worker.md); it does not change ordinary tool execution.
 
 The current threat model treats inference proposals as untrusted data and the kernel,
 registered tools, evaluators, and storage implementation as trusted code in one event
 loop. The store is not thread-safe or a security boundary against in-process Python.
-Generated programs must not run until an isolation backend is implemented and tested.
+Generated programs must use the tested confinement backend, never an ordinary in-process tool.
 
 See [change ownership](OWNERSHIP.md) for the implementation decision checklist,
 responsibility map, and classification of recent improvements.
@@ -72,10 +73,11 @@ cannot make filesystem artifact publication atomic with its own database transac
 
 ## Isolation
 
-Generated programs run behind a broker in an isolated worker with explicit resource and
-filesystem grants. The model never receives evaluator-private files, credentials, or
-unrestricted host execution. Network is disabled in competition mode. A claimed
-confinement backend needs negative tests before it is considered supported.
+The opt-in `ProgramWorker` runs generated Python in an isolated subprocess with a fixed
+read-only runtime and per-call limits. Network is always denied. Applications expose it
+through their broker and own recording and verification; there is no automatic integration
+with `Runtime`. The model receives no evaluator-private files or credentials. See the
+worker guide for supported platforms, negative tests, and the shared-kernel boundary.
 
 ## Proposed package layout
 

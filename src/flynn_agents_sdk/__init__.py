@@ -39,6 +39,7 @@ from flynn_agents_sdk.contracts import (
     Verdict,
 )
 from flynn_agents_sdk.inference import ScriptedAdapter
+from flynn_agents_sdk.program_worker import ProgramLimits, ProgramResult, ProgramWorker
 from flynn_agents_sdk.results import ImageContent, TextContent, ToolResult
 from flynn_agents_sdk.runtime import Runtime
 from flynn_agents_sdk.session import (
@@ -77,6 +78,9 @@ __all__ = [
     "InferenceRequest",
     "PendingOperation",
     "ProposalRejected",
+    "ProgramLimits",
+    "ProgramResult",
+    "ProgramWorker",
     "OutputBudget",
     "OutputReservation",
     "OutputBoundedInference",

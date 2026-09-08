@@ -8,6 +8,11 @@ implemented. Hosted DeepSeek vision is implemented for development smoke tests; 
 official ARC integration remain planned.
 Milestones are dependency gates, not promised dates.
 
+Current worker update: the opt-in Linux [program worker](guides/program-worker.md) now
+has confinement and resource-exhaustion tests. This completes that phase-3 prerequisite,
+not the local-inference or executable-model experiment milestones. Ordinary tool dispatch
+remains trusted and in-process.
+
 | Phase | SDK deliverable | ARC consumer deliverable | Exit evidence |
 |---|---|---|---|
 | 0 | Current design and package scaffold | Scope, architecture, evaluation plan | Docs agree on ownership and implementation status; package installs |
@@ -40,7 +45,8 @@ Phase 2 remains partial: accepted-state/commit recovery, durable budgets, full l
 records, and environment-specific reconciliation are not implemented. The consumer uses
 an editable sibling SDK dependency until these working-tree changes have a committed
 revision to pin. Next: commit and pin the integration, then local inference and an official
-environment baseline. Do not run generated model code before adding tested confinement.
+environment baseline. This paragraph records the historical checkpoint. Generated code
+now requires the separate tested worker described above; ordinary tools are not confined.
 
 ## Deferred
 

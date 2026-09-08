@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add an opt-in Linux confined Python worker with a four-operation JSON interface,
+  read-only runtime, network/process restrictions, and CPU/memory/time/output bounds.
+  Domain verification and aggregate budgets remain application-owned.
+
 - Add opt-in session rejection policy for certified pre-dispatch argument/response
   failures, with provider-neutral InferenceRejected and existing budget enforcement.
 

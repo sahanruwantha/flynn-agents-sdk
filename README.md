@@ -66,8 +66,10 @@ See the [SDK cutover readiness checklist](docs/SDK_READINESS.md) for scope and l
 - **Optional DeepSeek adapter:** direct HTTP requests, text/image inputs, structured
   traces, and typed response errors. No hidden agent loop or automatic retries.
 
-Flynn runs trusted application code in the same process. It is not a sandbox. Deadlines
-cannot preempt blocking Python. SQLiteRun restores recorded state and remaining operation budgets. It cannot
+Ordinary Flynn tools run trusted application code in the same process; their deadlines
+cannot preempt blocking Python. Generated Python can use the separate opt-in
+[confined program worker](docs/guides/program-worker.md), with a tested Linux backend
+and no unconfined fallback. SQLiteRun restores recorded state and remaining operation budgets. It cannot
 restore a Blender scene, reconcile external effects, or certify task completion. See the
 [runtime guide](docs/guides/runtime.md) for these boundaries.
 

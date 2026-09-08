@@ -11,6 +11,7 @@ If private reporting is temporarily unavailable, contact the maintainer through 
 [GitHub profile](https://github.com/sahanruwantha) to arrange a private channel before
 sharing exploit details. Do not post an exploit in a public issue.
 
-Flynn is not a sandbox: registered tools, evaluators, request hooks, and trace callbacks
-are trusted code. Keep secrets out of model inputs and trace sinks. Use separate workers
-and application-level isolation for untrusted code or files.
+Registered tools, evaluators, request hooks, and trace callbacks remain trusted code.
+Keep secrets out of model inputs and trace sinks. Generated Python can use the opt-in
+[confined program worker](docs/guides/program-worker.md). Its tested Linux boundary does
+not protect in-process tools or replace a VM against kernel vulnerabilities.
