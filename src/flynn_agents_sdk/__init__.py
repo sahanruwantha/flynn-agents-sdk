@@ -3,6 +3,7 @@
 from importlib.metadata import version
 
 from flynn_agents_sdk.accounting import summarize_usage
+from flynn_agents_sdk.configuration import ConfiguredInference, InferenceConfiguration
 from flynn_agents_sdk.context import ContextCompiler, ContextItem, ContextPacket
 from flynn_agents_sdk.contracts import (
     BudgetExhausted,
@@ -54,6 +55,8 @@ from flynn_agents_sdk.tools import Tool, ToolBroker
 
 __version__ = version("flynn-agents-sdk")
 __all__ = [
+    "ConfiguredInference",
+    "InferenceConfiguration",
     "BudgetExhausted",
     "Candidate",
     "ContextCompiler",

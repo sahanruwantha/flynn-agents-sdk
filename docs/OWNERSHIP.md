@@ -152,3 +152,19 @@ than mandatory deliberation gating.
   gates. Schema 2 and 3 are audit-readable; only schema 4 authorizes execution.
 - **Success criterion:** refusal before another model request, durable uncertainty,
   and exact consumed/held/available counts after reopen. No input or USD cap claimed.
+
+## Inference configuration admission
+
+`ConfiguredInference.configuration(request)` is an optional read-only capability
+returning immutable `InferenceConfiguration(provider, model, protocol, settings_json)`.
+Its canonical SHA-256 covers effective model settings, including DeepSeek's system
+instruction, thinking/effort, tool-choice mode and output ceiling. Request evidence and
+tool definitions remain in the SDK request, outside this settings description; the
+harness must bind those separately. Credentials never enter the description.
+
+`InferenceUsage.configuration_sha256` independently retains the fingerprint derived
+from the actual dispatched payload, including rejection, timeout and cancellation.
+Absent historical/unreported metadata stays unknown; scripted usage cannot claim it.
+The field lives in existing immutable usage JSON and changes no tables or historical
+bytes. A preflight description is not proof of dispatch, domain qualification or
+acceptance. Harness policy compares the selected configuration to actual usage.

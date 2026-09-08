@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 import httpx
 
+from flynn_agents_sdk.configuration import InferenceConfiguration
 from flynn_agents_sdk.contracts import (
     BudgetExhausted,
     InferenceCancelled,
@@ -283,6 +284,18 @@ class DeepSeekAdapter:
             payload["tool_choice"] = "required"
         return payload
 
+    @staticmethod
+    def _configuration(payload: dict[str, Any]) -> InferenceConfiguration:
+        settings = {key: value for key, value in payload.items()
+                    if key not in ("model", "messages", "tools")}
+        settings["system_instruction"] = payload["messages"][0]["content"]
+        return InferenceConfiguration(
+            "deepseek", payload["model"], "flynn.deepseek-chat/v1", json.dumps(settings)
+        )
+
+    def configuration(self, request: InferenceRequest) -> InferenceConfiguration:
+        return self._configuration(self._payload(request))
+
     async def generate(self, request: InferenceRequest) -> InferenceResult:
         reports: list[InferenceUsage] = []
         try:
@@ -307,9 +320,13 @@ class DeepSeekAdapter:
         rejected_calls: tuple[ToolCall, ...] = ()
         http_status: int | None = None
         error_body: RedactedErrorBody | None = None
+        configuration_sha256: str | None = None
+        requested_model = self.model
         outcome = "provider_error"
         try:
             payload = self._payload(request)
+            configuration_sha256 = self._configuration(payload).sha256
+            requested_model = payload["model"]
             async with asyncio.timeout(self.timeout_seconds):
                 request_started = True
                 response = await self._client.post("/chat/completions", json=payload)
@@ -433,7 +450,8 @@ class DeepSeekAdapter:
                     else UsageStatus.UNKNOWN,
                     request_started=request_started,
                     provider="deepseek",
-                    model=self.model,
+                    model=requested_model,
+                    configuration_sha256=configuration_sha256,
                     response_model=response_model
                     if isinstance(response_model, str) and response_model.strip()
                     else None,
@@ -453,7 +471,7 @@ class DeepSeekAdapter:
                 response_id = data.get("id")
                 self._trace(
                     InferenceTrace(
-                        self.model,
+                        requested_model,
                         response_id if isinstance(response_id, str) else None,
                         finish if isinstance(finish, str) else None,
                         prompt if type(prompt) is int and prompt >= 0 else None,

@@ -108,6 +108,7 @@ def test_model_accounting_persists_before_any_dispatch(tmp_path, mode):
         assert usage["known_input_tokens"] == (17 if known else 0)
         assert usage["known_output_tokens"] == (5 if known else 0)
         report = json.loads(run.records()["inference_usage"][0]["payload"])
+        assert len(report["configuration_sha256"]) == 64
         assert report["status"] == ("known" if known else "unknown")
         assert "secret" not in json.dumps(run.records())
 

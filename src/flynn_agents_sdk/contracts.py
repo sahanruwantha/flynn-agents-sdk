@@ -68,6 +68,7 @@ class InferenceUsage:
     input_tokens: int | None = None
     output_tokens: int | None = None
     response_model: str | None = None
+    configuration_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("model", "scripted") or not isinstance(self.status, UsageStatus):
@@ -79,6 +80,12 @@ class InferenceUsage:
         ):
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ContractError("Usage identity fields must be nonempty strings or None")
+        if self.configuration_sha256 is not None and (
+            not isinstance(self.configuration_sha256, str)
+            or len(self.configuration_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in self.configuration_sha256)
+        ):
+            raise ContractError("Inference configuration digest must be lowercase SHA-256 or None")
         for count in (self.input_tokens, self.output_tokens):
             if count is not None and (type(count) is not int or not 0 <= count < 2**63):
                 raise ContractError("Token counts must be nonnegative SQLite integers or None")
@@ -94,6 +101,7 @@ class InferenceUsage:
                         self.response_id,
                         self.finish_reason,
                         self.response_model,
+                        self.configuration_sha256,
                         self.input_tokens,
                         self.output_tokens,
                     )

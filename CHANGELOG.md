@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add configuration-aware inference: pure effective-setting descriptions and durable
+  fingerprints of the actual dispatched configuration, including rejected/failed calls.
+  DeepSeek retains dispatched requested identity even if adapter settings later change.
+
 - Preserve provider-reported response model separately from requested model in neutral
   usage, including rejected responses. Missing identity stays unknown; harnesses own
   model matching and qualification policy.

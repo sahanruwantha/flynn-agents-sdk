@@ -21,3 +21,12 @@ Paid inference runs remain separate from these offline compatibility checks.
 For learning-related work, read `.cursor/rules/learning-procedure.mdc` and apply it.
 The shared learning procedure and its measurable improvement across environments are
 our objective; ARC and other games are test settings. Preserve the SDK workflow above.
+
+# Inference configuration identity
+
+Configuration-aware adapters describe effective settings without dispatch and record
+the fingerprint derived from the actual request payload. Credentials and changing
+request evidence are not configuration. Changing request-to-wire framing requires a
+configuration protocol generation change; harnesses separately bind task prompts,
+tool contracts, evidence and domain qualification. Never copy a preflight fingerprint
+into usage without deriving it from the dispatched payload.
