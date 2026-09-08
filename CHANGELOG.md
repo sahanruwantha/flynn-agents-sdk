@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Preserve provider-reported response model separately from requested model in neutral
+  usage, including rejected responses. Missing identity stays unknown; harnesses own
+  model matching and qualification policy.
+
 - Add opt-in bounded, redacted HTTP-error bodies and HTTP status to DeepSeek traces,
   preserving diagnostic reasons without exposing configured credentials in error text.
 

@@ -217,3 +217,37 @@ def test_diagnostic_sink_failure_does_not_erase_consumed_usage(tmp_path):
             assert run.remaining()["tool"] == 8
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reported", ["resolved-version", None])
+def test_response_model_is_durable_and_unknown_is_not_inferred(tmp_path, reported):
+    path = tmp_path / "identity.db"
+    payload = body()
+    if reported is not None:
+        payload["model"] = reported
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="offline",
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+        ) as adapter:
+            with create(path) as run:
+                await runtime(run, adapter).step("read")
+
+    asyncio.run(scenario())
+    with SQLiteRun.open(path) as run:
+        usage = json.loads(run.records()["inference_usage"][0]["payload"])
+        assert usage["response_model"] == reported
+        assert usage["model"] == "deepseek-v4-flash-vision-exp"
+
+
+@pytest.mark.parametrize("value", ["", " ", True, 12, {}])
+def test_response_model_requires_nonempty_identity(value):
+    with pytest.raises(ContractError, match="identity"):
+        InferenceUsage("model", UsageStatus.KNOWN, provider="fixture", model="request",
+                       input_tokens=0, output_tokens=0, response_model=value)
+
+
+def test_scripted_usage_cannot_claim_a_response_model():
+    with pytest.raises(ContractError, match="Scripted"):
+        replace(InferenceUsage.scripted(), response_model="invented")

@@ -100,6 +100,10 @@ than mandatory deliberation gating.
 - **Contract:** adapters return `InferenceResult(call, usage)`. `InferenceUsage`
   separates model/scripted kind from known/unknown/not-applicable usage, includes
   provider/model and response/finish identity, and preserves partial token counts.
+  `model` is requested identity; `response_model` is provider-reported identity,
+  independently nullable. Missing response identity never falls back to the request.
+  Identity matching and judge qualification are harness policy. The optional field
+  lives in the existing immutable usage JSON; absent historical fields remain unknown.
   `InferenceFailure` and `InferenceCancelled` carry reports for failed invocations.
   A missing report remains unreported, including process death and historical runs.
   Raw response retention stays in the provider's opt-in diagnostics.

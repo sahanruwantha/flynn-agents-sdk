@@ -424,6 +424,7 @@ class DeepSeekAdapter:
             if not request_started:
                 prompt, completion = 0, 0
             response_id = data.get("id")
+            response_model = data.get("model")
             reports.append(
                 InferenceUsage(
                     kind="model",
@@ -433,6 +434,9 @@ class DeepSeekAdapter:
                     request_started=request_started,
                     provider="deepseek",
                     model=self.model,
+                    response_model=response_model
+                    if isinstance(response_model, str) and response_model.strip()
+                    else None,
                     response_id=response_id
                     if isinstance(response_id, str) and response_id.strip()
                     else None,

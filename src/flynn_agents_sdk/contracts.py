@@ -54,6 +54,8 @@ class InferenceUsage:
 
     Unknown usage may retain either known token count. request_started means dispatch
     was attempted, not that the remote provider received or billed the request.
+    model is requested identity; response_model is provider-reported identity, or
+    None when absent. Neither proves a provider actually served those weights.
     """
 
     kind: str
@@ -65,13 +67,16 @@ class InferenceUsage:
     finish_reason: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    response_model: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("model", "scripted") or not isinstance(self.status, UsageStatus):
             raise ContractError("Usage requires model/scripted kind and a UsageStatus")
         if type(self.request_started) is not bool:
             raise ContractError("request_started must be a boolean")
-        for value in (self.provider, self.model, self.response_id, self.finish_reason):
+        for value in (
+            self.provider, self.model, self.response_id, self.finish_reason, self.response_model
+        ):
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ContractError("Usage identity fields must be nonempty strings or None")
         for count in (self.input_tokens, self.output_tokens):
@@ -88,6 +93,7 @@ class InferenceUsage:
                         self.model,
                         self.response_id,
                         self.finish_reason,
+                        self.response_model,
                         self.input_tokens,
                         self.output_tokens,
                     )

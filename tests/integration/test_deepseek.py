@@ -439,3 +439,30 @@ def test_error_body_capture_is_off_by_default():
     with pytest.raises(ProviderError):
         asyncio.run(scenario())
     assert traces[0].http_status == 500 and traces[0].error_body is None
+
+
+@pytest.mark.parametrize("reported", ["resolved-model-version", None, "", "   ", 42, {}])
+@pytest.mark.parametrize("rejected", [False, True])
+def test_response_model_identity_survives_without_request_fallback(reported, rejected):
+    payload = response(arguments="bad" if rejected else "{}")
+    if reported is None:
+        payload.pop("model")
+    else:
+        payload["model"] = reported
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="offline",
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+        ) as adapter:
+            if rejected:
+                with pytest.raises(ProviderResponseRejected) as error:
+                    await adapter.generate(request())
+                return error.value.usage
+            return (await adapter.generate(request())).usage
+
+    usage = asyncio.run(scenario())
+    assert usage.model == "deepseek-v4-flash-vision-exp"
+    expected = reported if isinstance(reported, str) and reported.strip() else None
+    assert usage.response_model == expected
+    assert usage.output_tokens == 20
