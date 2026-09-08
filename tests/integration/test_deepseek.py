@@ -359,3 +359,83 @@ def test_thinking_without_forced_tool_still_rejects_plain_answer():
     assert len(sent) == 1 and "tool_choice" not in sent[0]
     assert error.value.usage.output_tokens == 20
     assert traces[0].call is None
+
+
+@pytest.mark.parametrize("encoding", ["literal", "unicode", "url", "base64", "mixed"])
+def test_http_error_capture_redacts_credentials_and_keeps_reason(encoding):
+    import base64
+    from urllib.parse import quote
+
+    secret = "sk-Test-123"
+    variants = {
+        "literal": secret,
+        "unicode": "".join(f"\\u{ord(c):04x}" for c in secret),
+        "url": "".join(f"%{ord(c):02x}" for c in secret),
+        "base64": base64.b64encode(secret.encode()).decode(),
+        "mixed": "".join(c if i % 2 else f"\\u{ord(c):04x}" for i, c in enumerate(secret)),
+    }
+    echo = variants[encoding]
+    body = (
+        '{"error":{"message":"thinking rejects tool_choice; echoed '
+        + echo
+        + '","param":"tool_choice","type":"invalid_request_error"},'
+        + '"api_key":"other-credential","Authorization":"Bearer other-bearer"}'
+    )
+    traces, sent = [], []
+
+    def handler(req):
+        sent.append(req)
+        return httpx.Response(400, content=body.encode())
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key=secret,
+            capture_error_body=True,
+            on_trace=traces.append,
+            transport=httpx.MockTransport(handler),
+        ) as adapter:
+            await adapter.generate(request())
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(scenario())
+    assert len(sent) == 1
+    trace = traces[0]
+    assert trace.http_status == 400
+    assert trace.error_body.redacted and not trace.error_body.truncated
+    assert trace.error_body.original_bytes == len(body.encode())
+    retained = json.loads(trace.error_body.text)
+    assert retained["error"]["param"] == "tool_choice"
+    assert "thinking rejects tool_choice" in retained["error"]["message"]
+    for value in (secret, echo, quote(secret), "other-credential", "other-bearer"):
+        assert value not in repr(trace) + str(error.value)
+    assert error.value.usage.output_tokens is None
+    assert trace.completion_tokens is None  # A 400 is not proof of zero spend.
+
+
+def test_non_json_error_and_redaction_before_truncation():
+    from flynn_agents_sdk.deepseek import _error_body
+
+    secret = "sk-sensitive-credential"
+    prefix = "x" * (65536 - len(secret) // 2)
+    body = (prefix + secret + "y" * 100).encode()
+    captured = _error_body(body, secret)
+    assert captured.truncated and captured.redacted
+    assert len(captured.text) == 65536 and secret[: len(secret) // 2] not in captured.text
+    error = _error_body(b"<html>bad request</html>\nAuthorization: Bearer token-value", secret)
+    assert "bad request" in error.text and "token-value" not in error.text
+
+
+def test_error_body_capture_is_off_by_default():
+    traces = []
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="test-key",
+            on_trace=traces.append,
+            transport=httpx.MockTransport(lambda _: httpx.Response(500, text="diagnostic")),
+        ) as a:
+            await a.generate(request())
+
+    with pytest.raises(ProviderError):
+        asyncio.run(scenario())
+    assert traces[0].http_status == 500 and traces[0].error_body is None

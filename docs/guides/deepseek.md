@@ -52,3 +52,18 @@ calls: those responses are rejected and their consumed usage retained. A recorde
 vision-control request using thinking plus `required` returned HTTP 400; its error
 body was not retained, so the exact reason was not recovered. This compatibility
 fix is tested offline; live acceptance remains unverified until a newly registered run.
+
+
+Use `capture_error_body=True` with `on_trace` to retain provider HTTP-error details.
+Each trace includes `http_status`; opted-in errors include `error_body.text`, `redacted`,
+`truncated`, and `original_bytes`. Text is decoded as UTF-8, credentials redacted before
+clipping to 65,536 characters. Exact configured-key echoes (literal, JSON unicode, URL
+escapes and base64), Bearer values and common credential fields are masked. Response
+headers are never retained. Exceptions remain body-free; capture does not retry or
+turn unknown usage into zero. Default capture is off.
+
+Redaction is not a guarantee against every possible obfuscation or unrelated secret:
+provider text remains untrusted and may contain echoed private prompts. Applications
+control artifact access and should not publish these traces automatically. Redacted
+text is diagnostic evidence, not an exact copy of the original bytes. The byte length
+and explicit truncation/redaction flags preserve that distinction.

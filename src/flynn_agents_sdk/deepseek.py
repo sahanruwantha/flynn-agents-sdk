@@ -1,8 +1,10 @@
 """Direct DeepSeek inference transport. No agent framework, retries, or hidden history."""
 
 import asyncio
+import base64
 import json
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -57,6 +59,43 @@ class ProviderResponseRejected(ProviderError, InferenceRejected):
 
 
 @dataclass(frozen=True)
+class RedactedErrorBody:
+    """Decoded provider error text; redaction precedes the 64 KiB character limit."""
+
+    text: str
+    redacted: bool
+    truncated: bool
+    original_bytes: int
+
+
+def _error_body(body: bytes, secret: str) -> RedactedErrorBody:
+    original = body.decode("utf-8", errors="replace")
+    text = original
+    # Cover literal and commonly escaped credential echoes, including mixed JSON
+    # unicode / URL escapes. Redact before clipping to avoid retaining a key prefix.
+    for value in (secret, json.dumps(secret)[1:-1], base64.b64encode(secret.encode()).decode()):
+        text = text.replace(value, "[REDACTED]")
+    escaped = "".join(
+        "(?:" + re.escape(c) + r"|\\u" + f"{ord(c):04x}" + "|%" + f"{ord(c):02x}" + ")"
+        for c in secret
+    )
+    text = re.sub(escaped, "[REDACTED]", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?i)\bbearer\s+[^\s\"'<>\\]+", "Bearer [REDACTED]", text)
+    fields = (
+        r"authorization|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
+        r"password|cookie|set-cookie|client[_-]?secret"
+    )
+    text = re.sub(
+        rf'(?i)("(?:{fields})"\s*:\s*)"(?:\\.|[^"\\])*"',
+        r'\1"[REDACTED]"',
+        text,
+    )
+    text = re.sub(rf"(?im)^(\s*(?:{fields}):)[^\r\n]*", r"\1 [REDACTED]", text)
+    text = re.sub(rf"(?i)([?&](?:{fields})=)[^&\s\"'<>]*", r"\1[REDACTED]", text)
+    return RedactedErrorBody(text[:65536], text != original, len(text) > 65536, len(body))
+
+
+@dataclass(frozen=True)
 class InferenceTrace:
     model: str
     response_id: str | None
@@ -71,6 +110,8 @@ class InferenceTrace:
     tool_call_count: int | None = None
     rejected_arguments: str | None = None
     rejected_calls: tuple[ToolCall, ...] = ()
+    http_status: int | None = None
+    error_body: RedactedErrorBody | None = None
 
 
 class DeepSeekAdapter:
@@ -81,7 +122,8 @@ class DeepSeekAdapter:
     DeepSeek so a configuration typo cannot redirect the bearer token elsewhere.
     An optional HTTP transport supports offline conformance tests.
     Opt-in capture_rejected_arguments retains the exact rejected model string in
-    traces, never headers or HTTP error bodies. Treat this as untrusted, potentially
+    traces. Opt-in capture_error_body retains bounded redacted HTTP errors, never
+    headers. Treat diagnostic text as untrusted, potentially
     sensitive output; applications choose retention and access policies.
     """
 
@@ -94,6 +136,7 @@ class DeepSeekAdapter:
         timeout_seconds: float = 45,
         on_trace: Callable[[InferenceTrace], None] | None = None,
         capture_rejected_arguments: bool = False,
+        capture_error_body: bool = False,
         reasoning_effort: Literal["low", "high", "max"] | None = None,
         system_instruction: str = DEFAULT_INSTRUCTION,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -115,6 +158,7 @@ class DeepSeekAdapter:
         self.timeout_seconds = timeout_seconds
         self._on_trace = on_trace
         self._capture_rejected_arguments = capture_rejected_arguments
+        self._capture_error_body = capture_error_body
         self.reasoning_effort = reasoning_effort
         self.system_instruction = system_instruction
         self._client = httpx.AsyncClient(
@@ -261,13 +305,21 @@ class DeepSeekAdapter:
         tool_call_count: int | None = None
         rejected_arguments: str | None = None
         rejected_calls: tuple[ToolCall, ...] = ()
+        http_status: int | None = None
+        error_body: RedactedErrorBody | None = None
         outcome = "provider_error"
         try:
             payload = self._payload(request)
             async with asyncio.timeout(self.timeout_seconds):
                 request_started = True
                 response = await self._client.post("/chat/completions", json=payload)
+            http_status = response.status_code
             if response.status_code != 200:
+                if self._capture_error_body:
+                    # The application owns persistence. Credentials are available
+                    # only here; do not make consumers re-read environment files.
+                    secret = self._client.headers["Authorization"][len("Bearer ") :]
+                    error_body = _error_body(response.content, secret)
                 raise ProviderError(
                     f"DeepSeek HTTP {response.status_code}; request was not retried"
                 )
@@ -410,6 +462,8 @@ class DeepSeekAdapter:
                         tool_call_count,
                         rejected_arguments,
                         rejected_calls,
+                        http_status,
+                        error_body,
                     ),
                     reports[-1],
                 )

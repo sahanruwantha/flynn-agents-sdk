@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add opt-in bounded, redacted HTTP-error bodies and HTTP status to DeepSeek traces,
+  preserving diagnostic reasons without exposing configured credentials in error text.
+
 - Omit unsupported `tool_choice` in DeepSeek thinking mode while retaining strict
   one-call response validation and the non-thinking default.
 
