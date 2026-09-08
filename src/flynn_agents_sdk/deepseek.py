@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -25,6 +25,13 @@ from flynn_agents_sdk.contracts import (
 )
 
 VISION_MODEL = "deepseek-v4-flash-vision-exp"
+DEFAULT_INSTRUCTION = (
+    "Choose exactly one permitted tool call for the objective. "
+    "Use the latest observation and attached images as evidence. "
+    "Accepted state may lag behind observations. Do not declare completion. "
+    "Return only ONE tool call total, including internal tools. "
+    "If several steps are useful, choose the first and wait for its result."
+)
 
 
 class ProviderError(InferenceFailure):
@@ -87,6 +94,8 @@ class DeepSeekAdapter:
         timeout_seconds: float = 45,
         on_trace: Callable[[InferenceTrace], None] | None = None,
         capture_rejected_arguments: bool = False,
+        reasoning_effort: Literal["low", "high", "max"] | None = None,
+        system_instruction: str = DEFAULT_INSTRUCTION,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if not api_key.strip() or "\n" in api_key or "\r" in api_key:
@@ -97,11 +106,17 @@ class DeepSeekAdapter:
             raise ValueError("max_tokens must be a positive integer")
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be finite and positive")
+        if reasoning_effort not in (None, "low", "high", "max"):
+            raise ValueError("reasoning_effort must be low, high, max, or None (disabled)")
+        if not isinstance(system_instruction, str) or not system_instruction.strip():
+            raise ValueError("system_instruction must be nonempty text")
         self.model = model
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self._on_trace = on_trace
         self._capture_rejected_arguments = capture_rejected_arguments
+        self.reasoning_effort = reasoning_effort
+        self.system_instruction = system_instruction
         self._client = httpx.AsyncClient(
             base_url="https://api.deepseek.com",
             headers={"Authorization": f"Bearer {api_key.strip()}"},
@@ -202,18 +217,12 @@ class DeepSeekAdapter:
                     },
                 }
             )
-        return {
+        payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Choose exactly one permitted tool call for the objective. "
-                        "Use the latest observation and attached images as evidence. "
-                        "Accepted state may lag behind observations. Do not declare completion. "
-                        "Return only ONE tool call total, including internal tools. "
-                        "If several steps are useful, choose the first and wait for its result."
-                    ),
+                    "content": self.system_instruction,
                 },
                 {"role": "user", "content": content},
             ],
@@ -221,8 +230,11 @@ class DeepSeekAdapter:
             "tool_choice": "required",
             "stream": False,
             "max_tokens": self._output_limit(request),
-            "thinking": {"type": "disabled"},
+            "thinking": {"type": "disabled" if self.reasoning_effort is None else "enabled"},
         }
+        if self.reasoning_effort is not None:
+            payload["reasoning_effort"] = self.reasoning_effort
+        return payload
 
     async def generate(self, request: InferenceRequest) -> InferenceResult:
         reports: list[InferenceUsage] = []

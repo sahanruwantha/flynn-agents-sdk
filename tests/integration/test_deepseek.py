@@ -277,3 +277,55 @@ def test_multiple_rejected_calls_preserve_each_model_argument(capture):
         ['{"first":1}', "malformed"] if capture else []
     )
     assert traces[0].call is None
+
+
+@pytest.mark.parametrize("effort", ["low", "high", "max"])
+def test_reasoning_is_explicit_bounded_and_independent(effort):
+    sent, traces = [], []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        body = response()
+        body["choices"][0]["message"]["reasoning_content"] = "private model deliberation"
+        body["usage"] = {
+            "prompt_tokens": 100,
+            "completion_tokens": 4096,
+            "completion_tokens_details": {"reasoning_tokens": 4000},
+        }
+        return httpx.Response(200, json=body)
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="test",
+            reasoning_effort=effort,
+            max_tokens=4096,
+            system_instruction="Infer a program; submit one tool call.",
+            transport=httpx.MockTransport(handler),
+            on_trace=traces.append,
+        ) as adapter:
+            first = await adapter.generate(request())
+            await adapter.generate(request())
+            return first
+
+    result = asyncio.run(scenario())
+    assert sent[0] == sent[1]  # No hidden provider conversation or reasoning replay.
+    assert sent[0]["thinking"] == {"type": "enabled"}
+    assert sent[0]["reasoning_effort"] == effort
+    assert sent[0]["max_tokens"] == 4096
+    assert sent[0]["messages"][0]["content"] == "Infer a program; submit one tool call."
+    assert result.usage.output_tokens == 4096  # Includes reasoning, not just visible text.
+    assert "private model deliberation" not in repr(traces)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"reasoning_effort": "medium"},
+        {"reasoning_effort": True},
+        {"system_instruction": " "},
+        {"system_instruction": None},
+    ],
+)
+def test_invalid_reasoning_and_instruction_fail_before_client(options):
+    with pytest.raises(ValueError):
+        DeepSeekAdapter(api_key="test", **options)

@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add explicit DeepSeek reasoning effort and application system instructions, retaining
+  output ceilings, independent requests, strict tool validation, and default payloads.
+
 - Add an opt-in Linux confined Python worker with a four-operation JSON interface,
   read-only runtime, network/process restrictions, and CPU/memory/time/output bounds.
   Domain verification and aggregate budgets remain application-owned.
