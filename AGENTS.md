@@ -15,3 +15,9 @@ Do not treat a sibling editable checkout as installation evidence. The harness c
 the private Git repository over SSH and pins the tested commit in uv.lock. Unpushed
 changes cannot be installed over SSH; state that limitation if pushing is not authorized.
 Paid inference runs remain separate from these offline compatibility checks.
+
+# Standing learning objective
+
+For learning-related work, read `.cursor/rules/learning-procedure.mdc` and apply it.
+The shared learning procedure and its measurable improvement across environments are
+our objective; ARC and other games are test settings. Preserve the SDK workflow above.

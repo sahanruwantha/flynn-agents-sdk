@@ -1,0 +1,43 @@
+---
+description: Improve and measure a transferable learning procedure, not a particular game's solution.
+alwaysApply: true
+---
+
+# Learning procedure is the objective
+
+For learning-related work in the SDK and harness:
+
+- The objective is a shared process that learns through experience across ARC, GTA,
+  Need for Speed, driving a car or bus, and other environments. A game is a test setting.
+  Do not optimize a particular solution and present that as progress on this objective.
+- Keep the loop shared: observe, form competing hypotheses, predict, choose a bounded
+  informative action, observe its actual effect, revise/refute, retain, and test reuse.
+  Same procedure does not mean identical sensors, actions, goals or learned world models.
+- Adapters translate sensors, action capabilities/parameters and authoritative environment
+  signals. They must not supply solution rules. Game ids may namespace observed evidence;
+  they must never select a policy or inject mechanics.
+- A tile lattice, palette, fixed camera, actor displacement or level counter is an optional
+  model with applicability conditions, not the universal meaning of observation or control.
+  Generality requires more than removing coordinates and renaming game-specific concepts.
+- Label supplied priors and compiled/model-authored knowledge. Learned content must have
+  attributable evidence, conditions, counterexamples and revisions. Check applicability
+  when reusing it; retain useful knowledge while rebuilding environment-local state.
+- Make the learning process observable: join observations and SDK operations to hypothesis
+  ids/versions, decision grounds, proposed experiments, predictions, actual actions,
+  effect checks, revisions and retained-knowledge retrieval/application. Preserve uncertainty.
+- Measure hypotheses formed/refuted/retired; knowledge retrieved/applied/effect-confirmed;
+  experiments proposed/executed; prediction coverage and accuracy; abstentions by reason;
+  conditional repeated failures; and actions/time/inference to learning and refutation.
+  Missing measurement is unknown, not zero. Game score is an outcome, not a learning metric.
+- Distinguish learn, retain and transfer with explicit baselines. A new episode of the same
+  game is not a second environment. Renaming, translation and synthetic tests establish
+  only their tested invariances, not transfer to another game or to real-world driving.
+- Translate a concrete failure into a domain-neutral mechanism and verify it against
+  materially different cases. Report unsupported representations and vocabulary exhaustion;
+  abstaining everywhere is a limitation to measure, not evidence of successful generality.
+- Generic execution, budgets, confinement and tracing belong in the SDK. Sensor semantics,
+  hypothesis formation, perception, experiment selection, evaluation and learning belong
+  in the harness. Verify review findings against code/evidence before calling them facts.
+- Preserve frozen experiments and their evidence. Ordinary refactors need appropriate tests;
+  interpreted experiments retain their registration, audit and spend boundaries. Do not
+  launch paid runs or claim capabilities merely because this objective is recorded.
