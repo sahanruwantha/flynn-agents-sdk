@@ -5,6 +5,9 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Omit unsupported `tool_choice` in DeepSeek thinking mode while retaining strict
+  one-call response validation and the non-thinking default.
+
 - Add explicit DeepSeek reasoning effort and application system instructions, retaining
   output ceilings, independent requests, strict tool validation, and default payloads.
 

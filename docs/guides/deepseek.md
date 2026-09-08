@@ -43,3 +43,12 @@ Register the exact text alongside experimental provider settings. Defaults prese
 existing request. Calls are independent requests with no assistant history; this option
 is not a multi-turn reasoning conversation API. Raw reasoning is still excluded from SDK
 traces; an application's explicit response recorder controls any additional retention.
+
+For thinking requests the adapter omits `tool_choice`: the provider's
+[integration compatibility guide](https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/)
+states that V4 thinking rejects it. Non-thinking requests still send `required`.
+This is a wire compatibility change, not permission to accept plain text or multiple
+calls: those responses are rejected and their consumed usage retained. A recorded
+vision-control request using thinking plus `required` returned HTTP 400; its error
+body was not retained, so the exact reason was not recovered. This compatibility
+fix is tested offline; live acceptance remains unverified until a newly registered run.

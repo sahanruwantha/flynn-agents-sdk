@@ -62,6 +62,7 @@ def test_explicit_vision_tool_payload_and_usage():
     assert sent[0]["tools"][0]["function"]["name"] == "move"
     assert sent[0]["max_tokens"] == 512
     assert sent[0]["thinking"] == {"type": "disabled"}
+    assert sent[0]["tool_choice"] == "required"
     assert traces[0].prompt_tokens == 100
     assert traces[0].completion_tokens == 20
     assert "test-secret" not in repr(traces)
@@ -311,6 +312,7 @@ def test_reasoning_is_explicit_bounded_and_independent(effort):
     assert sent[0] == sent[1]  # No hidden provider conversation or reasoning replay.
     assert sent[0]["thinking"] == {"type": "enabled"}
     assert sent[0]["reasoning_effort"] == effort
+    assert "tool_choice" not in sent[0]
     assert sent[0]["max_tokens"] == 4096
     assert sent[0]["messages"][0]["content"] == "Infer a program; submit one tool call."
     assert result.usage.output_tokens == 4096  # Includes reasoning, not just visible text.
@@ -329,3 +331,31 @@ def test_reasoning_is_explicit_bounded_and_independent(effort):
 def test_invalid_reasoning_and_instruction_fail_before_client(options):
     with pytest.raises(ValueError):
         DeepSeekAdapter(api_key="test", **options)
+
+
+def test_thinking_without_forced_tool_still_rejects_plain_answer():
+    sent, traces = [], []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        body = response(finish="stop")
+        body["choices"][0]["message"] = {
+            "content": "No tool needed",
+            "reasoning_content": "private",
+        }
+        return httpx.Response(200, json=body)
+
+    async def scenario():
+        async with DeepSeekAdapter(
+            api_key="test",
+            reasoning_effort="high",
+            transport=httpx.MockTransport(handler),
+            on_trace=traces.append,
+        ) as adapter:
+            await adapter.generate(request())
+
+    with pytest.raises(ProviderResponseRejected) as error:
+        asyncio.run(scenario())
+    assert len(sent) == 1 and "tool_choice" not in sent[0]
+    assert error.value.usage.output_tokens == 20
+    assert traces[0].call is None

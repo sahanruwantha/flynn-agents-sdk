@@ -227,13 +227,16 @@ class DeepSeekAdapter:
                 {"role": "user", "content": content},
             ],
             "tools": functions,
-            "tool_choice": "required",
             "stream": False,
             "max_tokens": self._output_limit(request),
             "thinking": {"type": "disabled" if self.reasoning_effort is None else "enabled"},
         }
         if self.reasoning_effort is not None:
+            # DeepSeek V4 thinking rejects tool_choice (including required).
+            # Prompting requests one call; response validation still enforces it.
             payload["reasoning_effort"] = self.reasoning_effort
+        else:
+            payload["tool_choice"] = "required"
         return payload
 
     async def generate(self, request: InferenceRequest) -> InferenceResult:
