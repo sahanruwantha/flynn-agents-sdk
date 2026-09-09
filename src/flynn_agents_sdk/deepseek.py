@@ -286,8 +286,11 @@ class DeepSeekAdapter:
 
     @staticmethod
     def _configuration(payload: dict[str, Any]) -> InferenceConfiguration:
-        settings = {key: value for key, value in payload.items()
-                    if key not in ("model", "messages", "tools")}
+        settings = {
+            key: value
+            for key, value in payload.items()
+            if key not in ("model", "messages", "tools")
+        }
         settings["system_instruction"] = payload["messages"][0]["content"]
         return InferenceConfiguration(
             "deepseek", payload["model"], "flynn.deepseek-chat/v1", json.dumps(settings)

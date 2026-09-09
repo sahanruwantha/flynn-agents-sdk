@@ -245,8 +245,15 @@ def test_response_model_is_durable_and_unknown_is_not_inferred(tmp_path, reporte
 @pytest.mark.parametrize("value", ["", " ", True, 12, {}])
 def test_response_model_requires_nonempty_identity(value):
     with pytest.raises(ContractError, match="identity"):
-        InferenceUsage("model", UsageStatus.KNOWN, provider="fixture", model="request",
-                       input_tokens=0, output_tokens=0, response_model=value)
+        InferenceUsage(
+            "model",
+            UsageStatus.KNOWN,
+            provider="fixture",
+            model="request",
+            input_tokens=0,
+            output_tokens=0,
+            response_model=value,
+        )
 
 
 def test_scripted_usage_cannot_claim_a_response_model():

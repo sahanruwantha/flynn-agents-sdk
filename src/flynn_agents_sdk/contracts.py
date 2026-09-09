@@ -76,7 +76,11 @@ class InferenceUsage:
         if type(self.request_started) is not bool:
             raise ContractError("request_started must be a boolean")
         for value in (
-            self.provider, self.model, self.response_id, self.finish_reason, self.response_model
+            self.provider,
+            self.model,
+            self.response_id,
+            self.finish_reason,
+            self.response_model,
         ):
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ContractError("Usage identity fields must be nonempty strings or None")

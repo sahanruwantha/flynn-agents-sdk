@@ -116,16 +116,20 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+http = [
+    { name = "httpx" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", marker = "extra == 'deepseek'", specifier = ">=0.28,<1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<1" },
+    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.28,<1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
-provides-extras = ["deepseek", "dev"]
+provides-extras = ["http", "deepseek", "dev"]
 
 [[package]]
 name = "h11"
