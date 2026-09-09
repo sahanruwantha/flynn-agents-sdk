@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from flynn_agents_sdk.contracts import (
+    BudgetExhausted,
     ContractError,
     DispatchDenied,
     DispatchGuard,
@@ -74,6 +75,10 @@ class Runtime:
     def events(self) -> tuple[Event, ...]:
         """Process-local presentation events. Durable operation records live in the store."""
         return tuple(self._events)
+
+    def _check_deadline(self) -> None:
+        if self._run.seconds_remaining == 0:
+            raise BudgetExhausted("Run wall-time budget exhausted")
 
     async def step(self, objective: str, *, grants: tuple[str, ...] | None = None) -> StepResult:
         async with self._lock:
@@ -167,7 +172,10 @@ class Runtime:
             candidate = self._run.returned(operation_id, output)
             stage = "evaluation"
             self._emit(Event(operation_id, "tool_returned", call.name))
-            result = self._run.complete(await self._evaluator.evaluate(candidate))
+            self._check_deadline()
+            evaluation = await self._evaluator.evaluate(candidate)
+            self._check_deadline()
+            result = self._run.complete(evaluation)
             stage = "notification"
             self._emit(Event(operation_id, "committed" if result.committed else "observed", ""))
             return result
@@ -199,5 +207,8 @@ class Runtime:
             if pending.candidate is None:
                 self._run.abandon_undispatched(pending.id)
                 return None
+            self._check_deadline()
             async with asyncio.timeout(self._run.seconds_remaining):
-                return self._run.complete(await self._evaluator.evaluate(pending.candidate))
+                evaluation = await self._evaluator.evaluate(pending.candidate)
+                self._check_deadline()
+                return self._run.complete(evaluation)

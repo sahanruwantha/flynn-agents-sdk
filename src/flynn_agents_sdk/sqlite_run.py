@@ -593,7 +593,7 @@ class SQLiteRun:
 
     def complete(self, evaluation: Evaluation) -> StepResult:
         with self._transaction():
-            self._require_open()
+            self._require_time()
             row = self._operation(evaluation.candidate.id, "returned")
             candidate = self._candidate(row)
             check_evaluation(candidate, evaluation)

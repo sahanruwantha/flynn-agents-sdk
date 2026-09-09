@@ -67,7 +67,10 @@ See the [SDK cutover readiness checklist](docs/SDK_READINESS.md) for scope and l
   traces, and typed response errors. No hidden agent loop or automatic retries.
 
 Ordinary Flynn tools run trusted application code in the same process; their deadlines
-cannot preempt blocking Python. Generated Python can use the separate opt-in
+cannot preempt blocking Python. After a tool returns, Flynn preserves its evidence
+but refuses to begin evaluation after the deadline. It checks again before publishing
+an evaluation or state update, including recovery and direct SQLite completion.
+Callers still need bounded, cancellable I/O for timely interruption. Generated Python can use the separate opt-in
 [confined program worker](docs/guides/program-worker.md), with a tested Linux backend
 and no unconfined fallback. SQLiteRun restores recorded state and remaining operation budgets. It cannot
 restore a Blender scene, reconcile external effects, or certify task completion. See the
