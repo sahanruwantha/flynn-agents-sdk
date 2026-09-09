@@ -5,6 +5,10 @@ Changes are grouped by release. Dates use YYYY-MM-DD. Version policy is in
 
 ## [Unreleased]
 
+- Add optional bounded HTTPS reads under caller-selected origin, byte, redirect and
+  total-deadline limits, with exact response identity and cancellation propagation.
+  Source selection, context extraction and domain acceptance remain application-owned.
+
 - Add configuration-aware inference: pure effective-setting descriptions and durable
   fingerprints of the actual dispatched configuration, including rejected/failed calls.
   DeepSeek retains dispatched requested identity even if adapter settings later change.

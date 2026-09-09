@@ -101,3 +101,10 @@ Flynn's ARC consumer demonstrated a completed level in a bounded development run
 that is consumer evidence, not a general SDK task-success guarantee.
 
 Licensed under [Apache-2.0](LICENSE). Provider services and model weights have their own terms.
+
+### Optional bounded HTTPS reads
+
+The `http` extra adds caller-policy-bound HTTPS response transport. Exact permitted
+origins, redirect limits, response byte caps and a total deadline remain explicit;
+source selection, extracted text and domain acceptance belong to the harness.
+See [bounded HTTPS reads](docs/http.md) for the transport and tool-registration contract.

@@ -23,3 +23,6 @@ release. Historical test counts in these documents describe their recorded check
 - [Architecture](ARCHITECTURE.md), [SDK design](SDK_DESIGN.md), [decisions](DECISIONS.md)
 - [Roadmap](ROADMAP.md), [research plan](RESEARCH_PLAN.md), [protocol](PROTOCOL.md)
 - [Claim ledger](CLAIMS.md)
+
+- [Bounded HTTPS reads](http.md): optional response transport under a caller-selected
+  origin, byte, redirect and deadline policy; no domain evaluation or prompt selection.
